@@ -11,7 +11,7 @@ List every API the runtime implements,analysis,should,no,yes,`anyexe coverage` (
 Check that the host can run it,diagnostics,should,no,yes,`anyexe doctor`
 Let the kernel run the converted file directly,integration,should,no,yes,relinked ELF runs by itself; `anyexe binfmt install` also makes plain `.exe` files launchable
 Case-insensitive file names and `C:\` paths,filesystem,must,yes,yes,`C:` maps to a prefix directory and `Z:` to `/`; lookups ignore case
-Windows registry,registry,should,yes,partial,"advapi32 registry calls answer with benign ""not found"" results; no persistent hive"
+Windows registry,registry,should,yes,yes,"persistent hive saved under the prefix and shared with child processes; seeded with Windows version, code page and CPU keys; no hive files, no merged HKCR view"
 Threads and synchronisation (events / mutexes / semaphores / SRW locks / condition variables),core,must,yes,yes,futex-based; wait-for-multiple with wait-all supported
 Thread-local storage (static TLS and TlsAlloc / FlsAlloc),core,must,yes,yes,per-thread TEB with ThreadLocalStoragePointer
 Structured exception handling and C++ exceptions (mingw / libgcc),core,must,yes,yes,.pdata unwinder; two-phase dispatch; hardware faults become exceptions

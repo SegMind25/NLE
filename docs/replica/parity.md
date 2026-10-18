@@ -1,16 +1,16 @@
-## Parity: 84.2 / 100
+## Parity: 85.8 / 100
 
-features 84.2  (24 counted, must-haves 15 of 15 done)
+features 85.8  (24 counted, must-haves 15 of 15 done)
 
 ## By area, weakest first
 - compat                         0.0  (4 features)
-- registry                      50.0  (1 features)
 - network                       83.3  (2 features)
 - core                          91.3  (8 features)
 - launch                       100.0  (1 features)
 - relink                       100.0  (3 features)
 - analysis                     100.0  (1 features)
 - filesystem                   100.0  (1 features)
+- registry                     100.0  (1 features)
 - console                      100.0  (1 features)
 - text                         100.0  (1 features)
 - process                      100.0  (1 features)
@@ -19,7 +19,6 @@ features 84.2  (24 counted, must-haves 15 of 15 done)
 - [should] compat: 32-bit Windows programs, no  (out of scope: the native layer is x64 only)
 - [should] compat: GUI programs (windows / Direct3D), no  (user32 is partly stubbed and gdi32 is missing; use the Wine backend)
 - [should] core: MSVC C++ exceptions (`_CxxThrowException`), no  (not implemented; programs that throw MSVC exceptions stop with a clear message)
-- [should] registry: Windows registry, partial  (advapi32 registry calls answer with benign "not found" results; no persistent hive)
 - [could] compat: .NET programs, no  (out of scope: needs a CLR)
 - [could] compat: Windows on ARM64 hosts, no  (x86-64 hosts only; native execution is the design)
 - [could] network: Overlapped and IOCP networking, partial  (IOCP object exists for files and pipes; overlapped sockets are not implemented)

@@ -24,6 +24,7 @@ pub mod misc;
 pub mod ntdll;
 pub mod ntdll_file;
 pub mod seh;
+pub mod winreg;
 pub mod ws2_32;
 
 pub fn tables() -> Vec<&'static [Shim]> {
@@ -50,6 +51,8 @@ pub fn tables() -> Vec<&'static [Shim]> {
         ntdll_file::IOCP_SHIMS,
         misc::BCRYPT_SHIMS,
         misc::ADVAPI_SHIMS,
+        winreg::REG_SHIMS,
+        winreg::SHREG_SHIMS,
         misc::USERENV_SHIMS,
         misc::SHELL_SHIMS,
         misc::OLE_SHIMS,

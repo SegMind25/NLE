@@ -260,36 +260,6 @@ crate::shims! { "advapi32" => ADVAPI_SHIMS;
     fn AdjustTokenPrivileges(_t: HANDLE, _all: BOOL, _new: usize, _len: DWORD, _prev: usize, _ret: usize) -> BOOL {
         TRUE
     }
-    fn RegOpenKeyExW(_k: usize, _sub: LPCWSTR, _opt: DWORD, _sam: DWORD, _out: *mut usize) -> i32 {
-        ERROR_FILE_NOT_FOUND as i32
-    }
-    fn RegOpenKeyExA(_k: usize, _sub: LPCSTR, _opt: DWORD, _sam: DWORD, _out: *mut usize) -> i32 {
-        ERROR_FILE_NOT_FOUND as i32
-    }
-    fn RegCreateKeyExW(_k: usize, _sub: LPCWSTR, _r: DWORD, _c: LPCWSTR, _o: DWORD, _sam: DWORD, _sa: usize, out: *mut usize, disp: *mut DWORD) -> i32 {
-        if !out.is_null() {
-            *out = 0x7000_0001;
-        }
-        if !disp.is_null() {
-            *disp = 1;
-        }
-        0
-    }
-    fn RegQueryValueExW(_k: usize, _name: LPCWSTR, _r: usize, _ty: *mut DWORD, _data: *mut u8, _len: *mut DWORD) -> i32 {
-        ERROR_FILE_NOT_FOUND as i32
-    }
-    fn RegQueryValueExA(_k: usize, _name: LPCSTR, _r: usize, _ty: *mut DWORD, _data: *mut u8, _len: *mut DWORD) -> i32 {
-        ERROR_FILE_NOT_FOUND as i32
-    }
-    fn RegSetValueExW(_k: usize, _name: LPCWSTR, _r: DWORD, _ty: DWORD, _data: *const u8, _len: DWORD) -> i32 {
-        0
-    }
-    fn RegCloseKey(_k: usize) -> i32 {
-        0
-    }
-    fn RegEnumKeyExW(_k: usize, _i: DWORD, _n: LPWSTR, _len: *mut DWORD, _r: usize, _c: LPWSTR, _cl: *mut DWORD, _t: *mut FILETIME) -> i32 {
-        ERROR_NO_MORE_ITEMS as i32
-    }
     fn RegisterEventSourceW(_m: LPCWSTR, _s: LPCWSTR) -> HANDLE {
         0
     }

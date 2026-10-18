@@ -22,6 +22,25 @@ struct Built {
     dir: PathBuf,
 }
 
+/// `cargo test` rebuilds the library for the tests but not the `libanyexe.so` that `relink` copies
+/// next to its output, so refresh it once; a stale copy would test yesterday's runtime.
+fn refresh_runtime_library() {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let mut cmd = Command::new(cargo);
+        cmd.args(["build", "--lib"]).current_dir(env!("CARGO_MANIFEST_DIR"));
+        if anyexe().contains("/release/") {
+            cmd.arg("--release");
+        }
+        match cmd.output() {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => eprintln!("warning: could not refresh libanyexe.so: {}", String::from_utf8_lossy(&o.stderr)),
+            Err(e) => eprintln!("warning: could not run cargo to refresh libanyexe.so: {e}"),
+        }
+    });
+}
+
 /// Compiles every test program once per test run. `None` when MinGW is missing.
 fn built() -> Option<&'static Built> {
     static B: OnceLock<Option<Built>> = OnceLock::new();
@@ -40,6 +59,7 @@ fn built() -> Option<&'static Built> {
             run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join(format!("{t}.exe"))).arg(src.join(format!("{t}.c"))));
         }
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_net.exe")).arg(src.join("t_net.c")).arg("-lws2_32"));
+        run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_registry.exe")).arg(src.join("t_registry.c")).arg("-lshlwapi"));
         run(Command::new(&gcc)
             .args(["-O1", "-shared", "-static-libgcc", "-o"])
             .arg(dir.join("helper.dll"))
@@ -85,6 +105,7 @@ fn check_run(c: &Case) {
     };
     let mut cmd = Command::new(anyexe());
     cmd.arg("run").arg(b.dir.join(format!("{}.exe", c.name))).args(c.args).current_dir(&b.dir);
+    cmd.env("ANYEXE_PREFIX", b.dir.join(format!("prefix-run-{}", c.name)));
     let (ok, text) = exec(cmd, c.stdin);
     assert!(ok && text.contains("ALL OK"), "{} failed under `anyexe run`:\n{text}", c.name);
 }
@@ -94,6 +115,7 @@ fn check_relinked(c: &Case) {
         eprintln!("skipping {}: MinGW-w64 (x86_64-w64-mingw32-gcc) is not installed", c.name);
         return;
     };
+    refresh_runtime_library();
     let out = b.dir.join(format!("relinked-{}", c.name));
     let _ = std::fs::remove_dir_all(&out);
     let status = Command::new(anyexe())
@@ -112,6 +134,7 @@ fn check_relinked(c: &Case) {
     assert!(std::fs::read(&elf).unwrap().starts_with(b"\x7fELF"), "relink must produce an ELF file");
     let mut cmd = Command::new(&elf);
     cmd.args(c.args).current_dir(&out);
+    cmd.env("ANYEXE_PREFIX", b.dir.join(format!("prefix-relinked-{}", c.name)));
     let (ok, text) = exec(cmd, c.stdin);
     assert!(ok && text.contains("ALL OK"), "{} failed as a relinked ELF:\n{text}", c.name);
 }
@@ -140,6 +163,7 @@ program_tests! {
     console_input => Case { name: "t_console", args: &[], stdin: "hello\nworld\n10 20\n" };
     sockets => case("t_net");
     child_processes => case("t_process");
+    registry => case("t_registry");
 }
 
 #[test]
@@ -159,6 +183,7 @@ fn relinked_hello_returns_its_exit_code() {
     assert_eq!(String::from_utf8_lossy(&direct.stdout), "hello 3\n");
     assert_eq!(direct.status.code(), Some(3));
 
+    refresh_runtime_library();
     let out = dir.join("out");
     assert!(Command::new(anyexe()).arg("relink").arg(&exe).arg("-o").arg(&out).output().unwrap().status.success());
     if !out.join("libanyexe.so").exists() {
@@ -199,6 +224,7 @@ fn cross_check(name: &str, exe: &Path, expect_stdout: &str, expect_code: i32) {
     let direct = Command::new(anyexe()).arg("run").arg(exe).args(["a", "b"]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&direct.stdout), expect_stdout, "{name} under `anyexe run`: {}", String::from_utf8_lossy(&direct.stderr));
     assert_eq!(direct.status.code(), Some(expect_code), "{name} exit code under `anyexe run`");
+    refresh_runtime_library();
     let out = exe.with_file_name(format!("{name}-linux"));
     let _ = std::fs::remove_dir_all(&out);
     let relink = Command::new(anyexe()).arg("relink").arg(exe).arg("-o").arg(&out).output().unwrap();

@@ -42,7 +42,7 @@ unsafe fn alloc_copy<T: Copy>(data: &[T]) -> *mut T {
     p
 }
 
-fn expand_env(src: &str) -> String {
+pub(crate) fn expand_env(src: &str) -> String {
     let mut out = String::new();
     let mut rest = src;
     while let Some(i) = rest.find('%') {

@@ -20,19 +20,20 @@ documentation.
 
 ## What to expect
 
-AnyEXE is a **compatibility layer for x86-64 Windows console and service programs**. It is honest about its limits:
+AnyEXE is a **compatibility layer for x86-64 Windows console programs**. It is honest about its limits:
 
 | works today (tested on every commit) | does not work |
 | --- | --- |
 | C and C++ programs built with MinGW-w64 (static or dynamic runtime) | **GUI** programs (windows, Direct3D, OpenGL): `user32` is only partly stubbed and `gdi32` is missing |
 | Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | **32-bit** programs and **.NET** programs |
-| threads, locks, TLS, fibers-local storage, timers | MSVC C++ exceptions (`_CxxThrowException`); MinGW exceptions work |
+| threads, locks, TLS, fiber-local storage, timers | MSVC C++ exceptions (`_CxxThrowException`); MinGW exceptions work |
 | files, directories, case-insensitive paths, `C:\` drives, pipes, console I/O | overlapped / IOCP networking (blocking and non-blocking sockets work) |
 | structured exceptions, hardware faults (access violation, divide by zero), C++ exceptions, `setjmp` / `longjmp` | anything that needs Windows kernel drivers, DRM, anti-cheat |
 | DLL loading (`LoadLibrary`, import DLLs next to the program, `DllMain`, TLS callbacks) | ARM64 hosts (x86-64 Linux only) |
-| Winsock sockets, `select`, name resolution | the real Windows registry (reads answer "not found") |
-| starting child processes (Windows children through `anyexe`, Linux programs directly) | running as a sandbox: the program has your user's rights |
-| Unicode, UTF-8 code page, wide-character APIs | |
+| Winsock sockets, `select`, name resolution | registry hive files, Windows services, COM objects |
+| the registry: a persistent hive under the prefix (shared with child processes), seeded with the usual Windows version keys | running as a sandbox: the program has your user's rights |
+| starting child processes (Windows children through `anyexe`, Linux programs directly) |  |
+| Unicode, UTF-8 code page, wide-character APIs |  |
 
 A program is not guaranteed to work because it appears in the left column; real programs use hundreds of APIs. Use
 `anyexe inspect` first: it tells you which of the program's imports are implemented and gives a verdict. Whatever is
