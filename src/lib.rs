@@ -8,10 +8,13 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 pub mod analyze;
+pub mod backend;
+pub mod cli;
 pub mod launch;
 pub mod loader;
 pub mod pe;
 pub mod registry;
+pub mod relink;
 pub mod runtime;
 pub mod shim;
 pub mod win;

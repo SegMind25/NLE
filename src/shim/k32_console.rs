@@ -156,7 +156,7 @@ fn ensure_ctrl_thread() {
     }
     *CTRL_PIPE.lock().unwrap() = fds;
     unsafe {
-        libc::signal(libc::SIGINT, on_sigint as usize);
+        libc::signal(libc::SIGINT, on_sigint as *const () as usize);
     }
     let rfd = fds[0];
     let _ = std::thread::Builder::new().name("anyexe-ctrl".into()).spawn(move || unsafe {

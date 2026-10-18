@@ -242,7 +242,12 @@ pub fn ci_resolve(p: &Path) -> PathBuf {
 
 /// Windows path -> existing-or-creatable host path.
 pub fn resolve(win: &str) -> PathBuf {
-    ci_resolve(Path::new(&win_to_host_str(win)))
+    let p = ci_resolve(Path::new(&win_to_host_str(win)));
+    let cfg = crate::runtime::cfg();
+    match &cfg.elf_alias {
+        Some(elf) if p == cfg.exe_host && p.symlink_metadata().is_err() => elf.clone(),
+        _ => p,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

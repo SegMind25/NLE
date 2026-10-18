@@ -12,7 +12,6 @@ mod c {
     pub fn frexp(x: f64, e: *mut c_int) -> f64;
     pub fn ldexp(x: f64, e: c_int) -> f64;
     pub fn modf(x: f64, ip: *mut f64) -> f64;
-    pub fn fma(x: f64, y: f64, z: f64) -> f64;
     pub fn remainder(x: f64, y: f64) -> f64;
     pub fn scalbn(x: f64, n: c_int) -> f64;
     pub fn logb(x: f64) -> f64;

@@ -429,7 +429,7 @@ crate::shims! { "crt";
             } else if handler == 1 {
                 libc::SIG_IGN
             } else {
-                host_signal as usize
+                host_signal as *const () as usize
             };
             libc::signal(sig, host);
         }

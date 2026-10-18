@@ -677,14 +677,6 @@ unsafe fn lstrcpy_bytes(dst: *mut u8, src: *const u8) {
     *dst.add(b.len()) = 0;
 }
 
-fn split_ext(p: &str) -> (&str, &str) {
-    let name_start = p.rfind(['\\', '/']).map(|i| i + 1).unwrap_or(0);
-    match p[name_start..].rfind('.') {
-        Some(i) => p.split_at(name_start + i),
-        None => (p, ""),
-    }
-}
-
 crate::shims! { "shlwapi" => SHLWAPI_SHIMS;
     fn PathFileExistsW(p: LPCWSTR) -> BOOL {
         paths::resolve(&w_ptr_to_string(p)).exists() as BOOL
@@ -870,6 +862,14 @@ mod tests {
         assert_eq!(split_command_line("\"C:\\Program Files\\x.exe\" /s"), vec!["C:\\Program Files\\x.exe", "/s"]);
         assert_eq!(split_command_line("a\\\"b"), vec!["a\"b"]);
         assert!(split_command_line("   ").is_empty());
+    }
+
+    fn split_ext(p: &str) -> (&str, &str) {
+        let name_start = p.rfind(['\\', '/']).map(|i| i + 1).unwrap_or(0);
+        match p[name_start..].rfind('.') {
+            Some(i) => p.split_at(name_start + i),
+            None => (p, ""),
+        }
     }
 
     #[test]

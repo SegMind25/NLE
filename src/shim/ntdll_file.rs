@@ -318,7 +318,7 @@ crate::shims! { "kernel32" => IOCP_SHIMS;
             return FALSE;
         };
         let mut n = 0usize;
-        let mut put = |c: Completion, n: usize| {
+        let put = |c: Completion, n: usize| {
             let e = entries.add(n * 4);
             *e = c.key;
             *e.add(1) = c.overlapped;

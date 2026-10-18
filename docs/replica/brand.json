@@ -1,0 +1,14 @@
+{
+  "avoid": [
+    "AnyPS5",
+    "boykopovar",
+    "PS5",
+    "PlayStation",
+    "Sony",
+    "Orbis"
+  ],
+  "domains": [
+    "boykopovar.github.io"
+  ],
+  "colors": []
+}

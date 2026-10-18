@@ -29,11 +29,23 @@ pub struct Config {
     pub trace: Trace,
     /// Refuse to start when any import is unresolved.
     pub strict: bool,
+    /// For relinked programs: the ELF file that stands in for the original `.exe`, which is not
+    /// shipped. Opening `exe_host` then yields this file, so a program can find and start itself.
+    pub elf_alias: Option<PathBuf>,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
+/// Command line handed down by a parent's `CreateProcess`, verbatim.
+static INHERITED_CMDLINE: OnceLock<Option<String>> = OnceLock::new();
+static INHERITED_PATH: OnceLock<Option<String>> = OnceLock::new();
+
 pub fn init(cfg: Config) {
+    // Taken out of the host environment so that unrelated children never see stale values.
+    let _ = INHERITED_CMDLINE.set(std::env::var("ANYEXE_CMDLINE").ok());
+    let _ = INHERITED_PATH.set(std::env::var("ANYEXE_WINPATH").ok());
+    std::env::remove_var("ANYEXE_CMDLINE");
+    std::env::remove_var("ANYEXE_WINPATH");
     let _ = CONFIG.set(cfg);
 }
 
@@ -131,7 +143,7 @@ pub fn init_env() {
     ];
     for (k, v) in defaults {
         if k == "PATH" {
-            env.push((k, v));
+            env.push((k, INHERITED_PATH.get().cloned().flatten().unwrap_or(v)));
             continue;
         }
         if !env.iter().any(|(ek, _)| ek.eq_ignore_ascii_case(&k)) {
@@ -182,6 +194,9 @@ pub fn quote_arg(a: &str) -> String {
 
 /// The command line string a Windows process sees (`GetCommandLineW`).
 pub fn command_line() -> String {
+    if let Some(Some(raw)) = INHERITED_CMDLINE.get() {
+        return raw.clone();
+    }
     let c = cfg();
     let mut parts = vec![quote_arg(&c.exe_win)];
     parts.extend(c.args.iter().map(|a| quote_arg(a)));

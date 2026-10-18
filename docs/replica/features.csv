@@ -1,0 +1,36 @@
+feature,area,priority,original,clone,notes
+Run a program by passing its file to one command,launch,must,yes,yes,`anyexe app.exe` and `anyexe run`
+Load the program into the host process without emulating the CPU,core,must,yes,yes,PE image is mapped and called directly; imports are bound to Rust functions using the Windows x64 calling convention
+Replace the platform OS library with reimplemented functions,core,must,yes,yes,1300+ functions across kernel32 / ntdll / msvcrt+ucrt / advapi32 / ws2_32 / others (see COVERAGE.md)
+Convert the program into a standalone native executable (relink),relink,must,yes,yes,`anyexe relink` writes an ET_EXEC ELF that the Linux kernel loads; verified on C / C++ / Rust / Go programs
+Keep the original load address so absolute pointers need no relocation,relink,must,yes,yes,PE image becomes PT_LOAD segments at the preferred base; metadata segments sit above it
+Program reads its own files beside it (data / DLLs),relink,must,yes,yes,bundled DLLs are copied next to the output; `GetModuleFileName` points beside the ELF
+Report how much of a program is supported before running it,analysis,must,yes,yes,`anyexe inspect` with per-library import counts and a verdict (native / partial / unsupported)
+Machine-readable report,analysis,should,no,yes,`anyexe inspect --json`
+List every API the runtime implements,analysis,should,no,yes,`anyexe coverage` (text / json / markdown)
+Check that the host can run it,diagnostics,should,no,yes,`anyexe doctor`
+Let the kernel run the converted file directly,integration,should,no,yes,relinked ELF runs by itself; `anyexe binfmt install` also makes plain `.exe` files launchable
+Case-insensitive file names and `C:\` paths,filesystem,must,yes,yes,`C:` maps to a prefix directory and `Z:` to `/`; lookups ignore case
+Windows registry,registry,should,yes,partial,"advapi32 registry calls answer with benign ""not found"" results; no persistent hive"
+Threads and synchronisation (events / mutexes / semaphores / SRW locks / condition variables),core,must,yes,yes,futex-based; wait-for-multiple with wait-all supported
+Thread-local storage (static TLS and TlsAlloc / FlsAlloc),core,must,yes,yes,per-thread TEB with ThreadLocalStoragePointer
+Structured exception handling and C++ exceptions (mingw / libgcc),core,must,yes,yes,.pdata unwinder; two-phase dispatch; hardware faults become exceptions
+MSVC C++ exceptions (`_CxxThrowException`),core,should,yes,no,not implemented; programs that throw MSVC exceptions stop with a clear message
+Loading DLLs next to the program (LoadLibrary / imports),core,must,yes,yes,DLLMain and TLS callbacks run; forwarded exports resolved
+Console input and output with ANSI colour mapping,console,must,yes,yes,console handles on a terminal; pipes and files behave like Windows
+Unicode: wide APIs and UTF-8 code page,text,must,yes,yes,ACP and OEM code page report 65001
+Networking (Winsock blocking and non-blocking),network,should,yes,yes,sockets map to host sockets; WSAEWOULDBLOCK semantics; select and poll
+Overlapped and IOCP networking,network,could,yes,partial,IOCP object exists for files and pipes; overlapped sockets are not implemented
+Create child processes,process,should,yes,yes,CreateProcess starts Windows children through `anyexe` and Linux programs directly; pipes and environment pass through
+Process listing (Toolhelp),process,could,no,yes,processes / modules / threads snapshots
+Memory management (VirtualAlloc / heaps / file mappings),core,must,yes,yes,VirtualQuery reads /proc/self/maps
+Wine as a fallback backend,backend,should,no,yes,chosen automatically when the program needs APIs the native layer lacks and Wine is installed
+Choose the backend explicitly,backend,could,no,yes,`--backend auto|native|wine`
+Isolated Windows environment (environment variables / directories),filesystem,should,no,yes,Windows-view environment is separate from the host's; `ANYEXE_PREFIX`
+Clear error when a missing API is called,diagnostics,must,no,yes,names the API and the call site; `--strict` refuses to start
+Trace what the program does,diagnostics,could,no,yes,`ANYEXE_TRACE=load|bind|api|all`
+32-bit Windows programs,compat,should,yes,no,out of scope: the native layer is x64 only
+.NET programs,compat,could,yes,no,out of scope: needs a CLR
+Windows on ARM64 hosts,compat,could,yes,no,x86-64 hosts only; native execution is the design
+GUI programs (windows / Direct3D),compat,should,yes,no,user32 is partly stubbed and gdi32 is missing; use the Wine backend
+Sandboxing,security,could,no,skip,programs run with the user's rights; not a security boundary

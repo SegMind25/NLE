@@ -1024,7 +1024,7 @@ pub fn install_fault_handlers() {
     unsafe {
         for sig in [libc::SIGSEGV, libc::SIGBUS, libc::SIGFPE, libc::SIGILL, libc::SIGTRAP] {
             let mut sa: libc::sigaction = std::mem::zeroed();
-            sa.sa_sigaction = fault_handler as usize;
+            sa.sa_sigaction = fault_handler as *const () as usize;
             sa.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER | libc::SA_ONSTACK;
             libc::sigemptyset(&mut sa.sa_mask);
             libc::sigaction(sig, &sa, std::ptr::null_mut());

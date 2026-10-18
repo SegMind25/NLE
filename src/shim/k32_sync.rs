@@ -330,7 +330,7 @@ fn timer_arm(t: &TimerObj, due: i64, period_ms: i32) {
 static SLIST_LOCK: Mutex<()> = Mutex::new(());
 
 #[repr(C)]
-struct SListHeader {
+pub struct SListHeader {
     head: usize,
     depth: u64,
 }

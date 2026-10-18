@@ -21,7 +21,6 @@ const TEB_TLS_EXPANSION: usize = 0x1780;
 const FLS_SLOTS: usize = 128;
 const DEFAULT_STACK: usize = 8 << 20;
 
-type ThreadStart = unsafe extern "win64" fn(usize) -> u32;
 type FlsCallback = unsafe extern "win64" fn(usize);
 
 struct StartInfo {

@@ -53,7 +53,7 @@ pub fn make_stubs(labels: &[String]) -> Vec<usize> {
             eprintln!("anyexe: cannot allocate import stubs");
             libc::_exit(70);
         }
-        let target = trap_common as usize as u64;
+        let target = trap_common as *const () as usize as u64;
         let mut out = Vec::with_capacity(labels.len());
         for i in 0..labels.len() {
             let s = (p as *mut u8).add(i * STUB_SIZE);

@@ -1,0 +1,27 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Package
+        run: |
+          name="anyexe-${GITHUB_REF_NAME}-linux-x86_64"
+          mkdir -p "$name/lib/anyexe" "$name/bin"
+          cp target/release/anyexe "$name/bin/"
+          cp target/release/libanyexe.so "$name/lib/anyexe/"
+          cp README.md LICENSE "$name/"
+          tar czf "$name.tar.gz" "$name"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: anyexe-*.tar.gz

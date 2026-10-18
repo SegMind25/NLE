@@ -15,6 +15,7 @@ pub mod k32_console;
 pub mod k32_file;
 pub mod k32_mem;
 pub mod k32_proc;
+pub mod k32_spawn;
 pub mod k32_str;
 pub mod k32_sync;
 pub mod k32_thread;
@@ -23,6 +24,7 @@ pub mod misc;
 pub mod ntdll;
 pub mod ntdll_file;
 pub mod seh;
+pub mod ws2_32;
 
 pub fn tables() -> Vec<&'static [Shim]> {
     vec![
@@ -30,6 +32,8 @@ pub fn tables() -> Vec<&'static [Shim]> {
         k32_file::SHIMS,
         k32_mem::SHIMS,
         k32_proc::SHIMS,
+        k32_spawn::SPAWN_SHIMS,
+        k32_spawn::WS2_SPAWN_SHIMS,
         k32_str::SHIMS,
         k32_sync::SHIMS,
         k32_thread::SHIMS,
@@ -57,6 +61,7 @@ pub fn tables() -> Vec<&'static [Shim]> {
         misc::PSAPI_SHIMS,
         misc::PSAPI_K32,
         misc::WINMM_SHIMS,
+        ws2_32::WS2_SHIMS,
         crt_math::SHIMS,
         crt_startup::SHIMS,
         crt_startup::DATA,
