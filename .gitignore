@@ -1,0 +1,6 @@
+/target
+*.exe
+*.dll
+!tests/fixtures/**
+.anyexe-prefix/
+*.swp

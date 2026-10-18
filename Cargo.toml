@@ -1,0 +1,31 @@
+[package]
+name = "anyexe"
+version = "0.1.0"
+edition = "2021"
+description = "Run Windows .exe files as native Linux processes: PE loader + reimplemented Win32/CRT libraries, no emulation"
+license = "MIT"
+repository = "https://github.com/SegMind25/NLE"
+readme = "README.md"
+rust-version = "1.88"
+
+[lib]
+name = "anyexe"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "anyexe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+strip = "debuginfo"
+
+[profile.dev]
+panic = "abort"
