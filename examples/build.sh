@@ -14,7 +14,7 @@ for src in *.c; do
         x86_64-w64-mingw32-windres "$name.rc" -O coff -o "bin/$name.res.o"
         res="bin/$name.res.o"
     fi
-    x86_64-w64-mingw32-gcc -O2 $flags -o "bin/$name.exe" "$src" $res -lgdi32 -luser32 -lcomctl32
+    x86_64-w64-mingw32-gcc -O2 $flags -o "bin/$name.exe" "$src" $res -lgdi32 -luser32 -lcomctl32 -lopengl32
     echo "built bin/$name.exe"
 done
 rm -f bin/*.res.o

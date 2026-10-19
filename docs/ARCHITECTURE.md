@@ -104,7 +104,8 @@ Programs with windows (`user32`, `gdi32`) are served by `src/gui/`, described in
 classes, windows, the message loop and the default window procedure are reimplemented; everything a window shows is
 drawn into memory by a software renderer (so drawing needs no display); an X11 backend, loaded with `dlopen`,
 puts the finished pixels on the screen and brings keyboard and mouse input back. A scripted headless display replaces
-X for tests. BUTTON, STATIC and EDIT are ordinary window procedures registered as built-in classes.
+X for tests. The controls (BUTTON, STATIC, EDIT, LISTBOX, COMBOBOX, SCROLLBAR and the `comctl32` classes), menus and dialog boxes are
+ordinary window procedures and window-system code registered as built-in classes, so programs can subclass them.
 
 ## Backends
 

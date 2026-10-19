@@ -1,8 +1,7 @@
-/* A window with a progress bar from the common controls library (comctl32). NLE does not
- * implement comctl32 yet, so this one shows what an unsupported program looks like:
+/* A window with a progress bar from the common controls library (comctl32), which NLE implements itself:
  *
- *   nle inspect progress.exe    # verdict: partial, with the missing functions listed
- *   nle progress.exe            # stops with a clear message instead of misbehaving
+ *   nle inspect progress.exe    # verdict: native
+ *   nle progress.exe
  */
 #include <windows.h>
 #include <commctrl.h>

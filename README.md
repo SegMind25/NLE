@@ -42,9 +42,10 @@ NLE is a **compatibility layer for x86-64 Windows programs**: console tools, and
 
 | works today (tested on every commit) | does not work |
 | --- | --- |
-| C and C++ programs built with MinGW-w64 (static or dynamic runtime) | **menus**, dialog and menu resources, icons / bitmaps / strings from the executable, common controls (`comctl32`), list boxes, combo boxes, scroll bars |
-| Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | **Direct3D**, OpenGL, DirectDraw, GDI+, printing |
-| **programs with windows**: Win32 windows and messages, GDI drawing, text, buttons, check boxes, radio buttons, labels, text boxes, message boxes, timers (shown on an X11 display, see [docs/GUI.md](docs/GUI.md)) | **32-bit** programs and **.NET** programs |
+| C and C++ programs built with MinGW-w64 (static or dynamic runtime) | **Direct3D**, OpenGL, DirectDraw, GDI+, printing |
+| Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | rich edit, MDI, the common file / colour / font dialogs, drag and drop, ActiveX / OLE |
+| **programs with windows**: Win32 windows and messages, GDI drawing and text, buttons, check boxes, radio buttons, text boxes, list boxes, combo boxes, scroll bars, **menus and accelerators**, **dialog boxes from resources**, icons / bitmaps / strings from the executable, message boxes, timers (shown on an X11 display, see [docs/GUI.md](docs/GUI.md)) | **32-bit** programs and **.NET** programs |
+| the **common controls** (`comctl32`): tool bar, status bar, tab control, list view, tree view, progress / track / spin controls, image lists, `TaskDialog` | visual styles and theme manifests (controls draw in NLE's own classic-modern look) |
 | threads, locks, TLS, fiber-local storage, timers | MSVC C++ exceptions (`_CxxThrowException`); MinGW exceptions work |
 | files, directories, case-insensitive paths, `C:\` drives, pipes, console I/O | overlapped / IOCP networking (blocking and non-blocking sockets work) |
 | structured exceptions, hardware faults (access violation, divide by zero), C++ exceptions, `setjmp` / `longjmp` | anything that needs Windows kernel drivers, DRM, anti-cheat |
@@ -69,10 +70,14 @@ and draws what they print.
 | | |
 | --- | --- |
 | **Check a program first.** `nle inspect` lists the imports and says whether the program can run natively.<br><img src="docs/screenshots/02-inspect.png" alt="nle inspect"> | **Convert it.** `nle relink` writes a Linux ELF; `file` and `ldd` show an ordinary dynamically linked program.<br><img src="docs/screenshots/03-relink.png" alt="nle relink"> |
-| **Go and Rust programs** bring their own runtimes and run unchanged.<br><img src="docs/screenshots/04-go-and-rust.png" alt="Go and Rust programs"> | **Honest limits.** A program that needs the common controls library is reported as partial and stops with a clear message.<br><img src="docs/screenshots/05-limits.png" alt="a program NLE cannot run"> |
-| **Real test programs**: threads, files, exceptions, DLLs, sockets, child processes, the registry.<br><img src="docs/screenshots/08-test-programs.png" alt="test programs"> | **Check your machine** with `nle doctor`, and list the 1,700+ implemented functions with `nle coverage`.<br><img src="docs/screenshots/06-doctor.png" alt="nle doctor"> |
+| **Go and Rust programs** bring their own runtimes and run unchanged.<br><img src="docs/screenshots/04-go-and-rust.png" alt="Go and Rust programs"> | **Honest limits.** A program that needs OpenGL is reported as partial and stops with a clear message that names the missing function.<br><img src="docs/screenshots/05-limits.png" alt="a program NLE cannot run"> |
+| **Real test programs**: threads, files, exceptions, DLLs, sockets, child processes, the registry.<br><img src="docs/screenshots/08-test-programs.png" alt="test programs"> | **Check your machine** with `nle doctor`, and list the 1,850+ implemented functions with `nle coverage`.<br><img src="docs/screenshots/06-doctor.png" alt="nle doctor"> |
 | **Programs with windows** run on an X11 display. A form with text box, check box, radio buttons and a timer:<br><img src="docs/screenshots/10-controls.png" alt="controls.exe"> | Freehand drawing with GDI: a back buffer, mouse input, keyboard shortcuts, a timer-driven ball:<br><img src="docs/screenshots/11-paint.png" alt="paint.exe"> |
 | Message boxes with icons, buttons and keyboard handling, from a console program:<br><img src="docs/screenshots/12-message-box.png" alt="a message box"> | A plain Win32 window: the program that started this feature.<br><img src="docs/screenshots/09-window.png" alt="window.exe"> |
+| **Menus** with check marks, sub menus, mnemonics and accelerators:<br><img src="docs/screenshots/13-menus.png" alt="menus.exe"> | **Dialog boxes** built from the program's own resources, with Tab / arrow navigation and mnemonics:<br><img src="docs/screenshots/14-dialogs.png" alt="dialogs.exe"> |
+| **List boxes and combo boxes**, with drop-down lists and scroll bars:<br><img src="docs/screenshots/15-lists.png" alt="lists.exe"> | **Window scroll bars** with thumb dragging, paging and auto-repeat:<br><img src="docs/screenshots/19-scroll-bars.png" alt="scroll.exe"> |
+| **Common controls**: tool bar, tab control, a report-view **list view** with icons and check boxes, status bar:<br><img src="docs/screenshots/16-list-view.png" alt="common.exe, list view"> | The **tree view** with buttons, lines and images:<br><img src="docs/screenshots/17-tree-view.png" alt="common.exe, tree view"> |
+| **Progress, track and spin controls:**<br><img src="docs/screenshots/18-controls.png" alt="common.exe, controls"> | |
 
 ## Try it
 
@@ -85,6 +90,7 @@ $ nle relink examples/bin/sysinfo.exe -o dist && ./dist/sysinfo
 $ nle examples/bin/controls.exe        # a form with windows (needs an X11 display)
 $ nle examples/bin/paint.exe           # drag to draw, 1-4 colours, C clears
 $ nle examples/bin/msgbox.exe          # message boxes; the answer is the exit code
+$ nle examples/bin/common.exe          # tool bar, tabs, list view, tree view, status bar, spin control
 ```
 
 Windows work through the display NLE finds in `DISPLAY`. For tests and CI there is a scripted headless display:

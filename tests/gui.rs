@@ -582,7 +582,29 @@ impl Drop for Xvfb {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        // a killed server leaves its socket and lock file behind; they would pile up and use up the display numbers
+        remove_display_files(&self.display);
     }
+}
+
+fn remove_display_files(display: &str) {
+    let n = display.trim_start_matches(':');
+    let _ = std::fs::remove_file(format!("/tmp/.X11-unix/X{n}"));
+    let _ = std::fs::remove_file(format!("/tmp/.X{n}-lock"));
+}
+
+/// Whether display `:n` belongs to a running server; the files of a dead one (an earlier run that was killed) are removed.
+fn display_in_use(n: u32) -> bool {
+    let socket = format!("/tmp/.X11-unix/X{n}");
+    let lock = format!("/tmp/.X{n}-lock");
+    if !Path::new(&socket).exists() && !Path::new(&lock).exists() {
+        return false;
+    }
+    let alive = std::fs::read_to_string(&lock).ok().and_then(|t| t.trim().parse::<u32>().ok()).is_some_and(|pid| Path::new(&format!("/proc/{pid}")).exists());
+    if !alive {
+        remove_display_files(&format!(":{n}"));
+    }
+    alive
 }
 
 fn start_xvfb() -> Option<Xvfb> {
@@ -591,7 +613,7 @@ fn start_xvfb() -> Option<Xvfb> {
     for _ in 0..20 {
         let n = 100 + (std::process::id() % 400) + NEXT.fetch_add(7, Ordering::SeqCst);
         let socket = format!("/tmp/.X11-unix/X{n}");
-        if Path::new(&socket).exists() {
+        if display_in_use(n) {
             continue;
         }
         let mut child = Command::new(&xvfb).arg(format!(":{n}")).args(["-screen", "0", "1024x768x24", "-nolisten", "tcp", "-noreset"]).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()?;
@@ -607,7 +629,7 @@ fn start_xvfb() -> Option<Xvfb> {
         }
         let _ = child.kill();
     }
-    None
+    panic!("Xvfb is installed but would not start on any of 20 display numbers");
 }
 
 /// The X test driver, built with real pointer injection (XTEST) when libXtst is there.
@@ -653,7 +675,12 @@ fn on_x_with(exe: &str, args: &[&str], title: &str, steps: &[&str]) -> Option<(i
             if let Some(mut o) = prog.stdout.take() {
                 std::io::Read::read_to_string(&mut o, &mut text).ok();
             }
-            return st.code().map(|c| (c, text));
+            let mut err = String::new();
+            if let Some(mut o) = prog.stderr.take() {
+                std::io::Read::read_to_string(&mut o, &mut err).ok();
+            }
+            let code = st.code().unwrap_or_else(|| panic!("{exe} was killed by a signal ({st}); stderr: {err}"));
+            return Some((code, text));
         }
         if start.elapsed() > Duration::from_secs(20) {
             prog.kill().ok();

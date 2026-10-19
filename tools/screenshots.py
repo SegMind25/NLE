@@ -75,7 +75,7 @@ SCENES = [
         "name": "05-limits",
         "title": "what NLE cannot run",
         "width": 1040,
-        "cmds": ["nle inspect progress.exe", "nle progress.exe"],
+        "cmds": ["nle inspect opengl.exe | tail -n 12", "NLE_GUI=headless nle opengl.exe"],
     },
     {
         "name": "06-doctor",
@@ -99,6 +99,8 @@ SCENES = [
     },
 ]
 
+# A GUI scene runs the program on Xvfb and plays the user with xdrive: "shot" grabs the window, "rshot" the whole
+# screen (cropped to "crop", which is how a pop-up menu is shown with its window). "finish" replaces the final close.
 GUI_SCENES = [
     {
         "name": "09-window",
@@ -124,6 +126,58 @@ GUI_SCENES = [
             "key", "2", "drag", "300", "300", "420", "110", "drag", "420", "110", "540", "310",
             "key", "3", "drag", "70", "250", "560", "250", "sleep", "200", "shot",
         ],
+    },
+    {
+        "name": "13-menus",
+        "title": "menus.exe: menu bar, check marks, accelerators",
+        "exe": "menus.exe",
+        "wait_title": "NLE menus",
+        "steps": ["key", "F10", "sleep", "200", "key", "v", "sleep", "300", "rshot"],
+        "crop": [128, 184, 508, 344],
+    },
+    {
+        "name": "14-dialogs",
+        "title": "dialogs.exe: a dialog built from resources",
+        "exe": "dialogs.exe",
+        "wait_title": "NLE dialogs",
+        "steps": ["fclick", "10", "10", "sleep", "200", "fclick", "40", "34", "sleep", "300", "title", "Settings", "wait", "5000", "type", "Eve", "key", "Tab", "key", "space", "sleep", "200", "shot"],
+        "finish": ["key", "Return", "sleep", "300", "title", "NLE dialogs", "wait", "3000", "close"],
+    },
+    {
+        "name": "15-lists",
+        "title": "lists.exe: list boxes and combo boxes",
+        "exe": "lists.exe",
+        "wait_title": "NLE lists",
+        "steps": ["click", "30", "50", "click", "30", "150", "sleep", "200", "fclick", "330", "20", "sleep", "300", "rshot"],
+        "crop": [128, 184, 528, 454],
+    },
+    {
+        "name": "16-list-view",
+        "title": "common.exe: tool bar, tab control, list view, status bar",
+        "exe": "common.exe",
+        "wait_title": "NLE common controls",
+        "steps": ["click", "100", "122", "click", "200", "66", "sleep", "200", "shot"],
+    },
+    {
+        "name": "17-tree-view",
+        "title": "common.exe: tree view with images",
+        "exe": "common.exe",
+        "wait_title": "NLE common controls",
+        "steps": ["click", "65", "42", "click", "41", "83", "click", "60", "155", "sleep", "200", "shot"],
+    },
+    {
+        "name": "18-controls",
+        "title": "common.exe: progress bar, track bar, spin control",
+        "exe": "common.exe",
+        "wait_title": "NLE common controls",
+        "steps": ["click", "110", "42", "click", "200", "98", "click", "162", "152", "click", "162", "152", "sleep", "200", "shot"],
+    },
+    {
+        "name": "19-scroll-bars",
+        "title": "scroll.exe: window scroll bars",
+        "exe": "scroll.exe",
+        "wait_title": "NLE scroll bars",
+        "steps": ["shot"],
     },
     {
         "name": "12-message-box",
@@ -335,14 +389,15 @@ def render_gui(scene: dict, tmp: Path, display: str, drive: Path):
     env = dict(os.environ, DISPLAY=display, NLE_PREFIX=str(DEMO / ".prefix"), HOME=str(DEMO.parent), USER="user")
     env.pop("NLE_GUI", None)
     prog = subprocess.Popen([str(NLE), "run", str(DEMO / scene["exe"])], env=env, cwd=DEMO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    steps = []
-    for st in scene["steps"]:
-        steps.append(str(ppm) if st == "shot" else st)
-    # `shot` is followed by its file name argument
     cmd = [str(drive), scene["wait_title"], "wait", "8000"]
     for st in scene["steps"]:
-        cmd += ["shot", str(ppm)] if st == "shot" else [st]
-    cmd += ["close"] if scene["exe"] != "msgbox.exe" else ["key", "y", "sleep", "400", "title", "NLE", "wait", "5000", "key", "enter"]
+        cmd += [st, str(ppm)] if st in ("shot", "rshot") else [st]
+    if "finish" in scene:
+        cmd += scene["finish"]
+    elif scene["exe"] == "msgbox.exe":
+        cmd += ["key", "y", "sleep", "400", "title", "NLE", "wait", "5000", "key", "enter"]
+    else:
+        cmd += ["close"]
     subprocess.run(cmd, env=env, check=True)
     try:
         prog.wait(timeout=15)
@@ -350,6 +405,8 @@ def render_gui(scene: dict, tmp: Path, display: str, drive: Path):
         prog.kill()
     from PIL import Image
     img = Image.open(ppm).convert("RGB")
+    if "crop" in scene:
+        img = img.crop(tuple(scene["crop"]))
     png = tmp / f"{scene['name']}-raw.png"
     img.save(png)
     page = tmp / f"{scene['name']}.html"
@@ -392,13 +449,21 @@ def main():
     gui = [g for g in GUI_SCENES if not wanted or any(w in g["name"] for w in wanted)]
     if gui:
         drive = DEMO / "xdrive"
-        subprocess.run(["cc", "-O1", "-o", str(drive), str(ROOT / "tests" / "gui" / "xdrive.c"), "-lX11"], check=True)
+        # fclick needs libXtst; without it the scenes that use fclick cannot run
+        cc = ["cc", "-O1", "-o", str(drive), str(ROOT / "tests" / "gui" / "xdrive.c"), "-lX11"]
+        if subprocess.run(cc + ["-l:libXtst.so.6"], capture_output=True).returncode != 0:
+            subprocess.run(cc + ["-DNO_XTEST"], check=True)
         xvfb, display = start_xvfb()
         try:
             for g in gui:
                 render_gui(g, tmp, display, drive)
         finally:
             xvfb.kill()
+            xvfb.wait()
+            # a killed server leaves its socket and lock behind
+            n = display.lstrip(":")
+            for f in (f"/tmp/.X11-unix/X{n}", f"/tmp/.X{n}-lock"):
+                Path(f).unlink(missing_ok=True)
     shutil.rmtree(tmp, ignore_errors=True)
 
 
