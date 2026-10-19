@@ -17,11 +17,14 @@ jobs:
       - name: Package
         run: |
           name="nle-${GITHUB_REF_NAME}-linux-x86_64"
-          mkdir -p "$name/lib/nle" "$name/bin"
+          mkdir -p "$name/lib/nle" "$name/bin" "$name/share/applications" "$name/share/icons/hicolor/256x256/apps"
           cp target/release/nle "$name/bin/"
           cp target/release/libnle.so "$name/lib/nle/"
+          cp assets/nle.desktop "$name/share/applications/"
+          cp assets/favicon.png "$name/share/icons/hicolor/256x256/apps/nle.png"
           cp README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
       - uses: softprops/action-gh-release@v2
         with:
           files: nle-*.tar.gz
+          generate_release_notes: true
