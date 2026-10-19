@@ -362,7 +362,37 @@ pub fn build(pe: &Pe, pe_bytes: &[u8], interp: &str, opts: &Options) -> Result<V
     for (i, p) in phdrs.iter().enumerate() {
         write_phdr(&mut file, phoff + i * 56, p);
     }
+    // Data after the last section (an appended archive, a signature) is not part of the image, so the
+    // sections above do not carry it. A program that reads its own file would then miss it, so the
+    // original file rides along after the last segment and is served when the program opens itself.
+    let image_end = pe.sections.iter().map(|s| s.raw_off as usize + s.raw_size as usize).max().unwrap_or(0).max(pe.size_of_headers as usize);
+    if pe_bytes.len() > image_end {
+        file.extend_from_slice(pe_bytes);
+        file.extend_from_slice(&(pe_bytes.len() as u64).to_le_bytes());
+        file.extend_from_slice(EMBED_MAGIC);
+    }
     Ok(file)
+}
+
+const EMBED_MAGIC: &[u8; 8] = b"NLEPE1\0\0";
+
+/// The original `.exe` that `build` appended to a relinked ELF, if it had data after its sections.
+pub fn read_embedded(elf: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(elf).ok()?;
+    let total = f.seek(SeekFrom::End(0)).ok()?;
+    let mut tail = [0u8; 16];
+    f.seek(SeekFrom::Start(total.checked_sub(16)?)).ok()?;
+    f.read_exact(&mut tail).ok()?;
+    if &tail[8..] != EMBED_MAGIC {
+        return None;
+    }
+    let len = u64::from_le_bytes(tail[..8].try_into().unwrap());
+    let start = total.checked_sub(16)?.checked_sub(len)?;
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = vec![0u8; len as usize];
+    f.read_exact(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 /// Reads the interpreter path (`PT_INTERP`) of an ELF file, e.g. this program's own binary.
@@ -428,6 +458,26 @@ pub unsafe fn find_note() -> Option<(u64, u64, String)> {
 mod tests {
     use super::*;
     use crate::pe::testutil::sample_pe;
+
+    #[test]
+    fn embeds_the_original_only_when_it_has_trailing_data() {
+        let bytes = sample_pe();
+        let pe = Pe::parse(&bytes, Layout::File).unwrap();
+        let opts = Options { runpath: "$ORIGIN".into(), original_name: "sample.exe".into() };
+        let dir = std::env::temp_dir().join(format!("nle-embed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let plain = build(&pe, &bytes, "/lib64/ld-linux-x86-64.so.2", &opts).unwrap();
+        std::fs::write(dir.join("plain"), &plain).unwrap();
+        assert!(read_embedded(&dir.join("plain")).is_none());
+
+        let mut with_overlay = bytes.clone();
+        with_overlay.extend_from_slice(b"PK-appended-archive");
+        let pe2 = Pe::parse(&with_overlay, Layout::File).unwrap();
+        let elf = build(&pe2, &with_overlay, "/lib64/ld-linux-x86-64.so.2", &opts).unwrap();
+        std::fs::write(dir.join("overlay"), &elf).unwrap();
+        assert_eq!(read_embedded(&dir.join("overlay")).unwrap(), with_overlay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn builds_a_well_formed_elf() {

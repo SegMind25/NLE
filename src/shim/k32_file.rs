@@ -75,6 +75,28 @@ fn with_file<R>(h: HANDLE, f: impl FnOnce(&FileObj) -> R) -> Option<R> {
     }
 }
 
+/// A relinked program that opens its own `.exe` for reading gets the original file (an appended archive and
+/// all) when the relinker kept it, as a memory file opened through `/proc/self/fd`; anything else gets the ELF.
+fn embedded_original(host: &Path, write: bool) -> Option<PathBuf> {
+    use std::io::Write;
+    use std::os::fd::{FromRawFd, IntoRawFd};
+    static FD: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    if write || crate::runtime::cfg().elf_alias.as_deref() != Some(host) {
+        return None;
+    }
+    let fd = (*FD.get_or_init(|| {
+        let bytes = crate::relink::read_embedded(host)?;
+        let fd = unsafe { libc::memfd_create(c"nle-original".as_ptr(), libc::MFD_CLOEXEC) };
+        if fd < 0 {
+            return None;
+        }
+        let mut f = unsafe { std::fs::File::from_raw_fd(fd) };
+        f.write_all(&bytes).ok()?;
+        Some(f.into_raw_fd())
+    }))?;
+    Some(PathBuf::from(format!("/proc/self/fd/{fd}")))
+}
+
 pub(crate) unsafe fn open_file(path: &str, access: DWORD, disposition: DWORD, attrs_flags: DWORD) -> HANDLE {
     let want_read = access & (GENERIC_READ | FILE_READ_DATA | GENERIC_ALL) != 0;
     let want_write = access & (GENERIC_WRITE | FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_ALL) != 0;
@@ -104,6 +126,7 @@ pub(crate) unsafe fn open_file(path: &str, access: DWORD, disposition: DWORD, at
     }
 
     let host = paths::resolve(path);
+    let host = embedded_original(&host, want_write).unwrap_or(host);
     let mut flags = libc::O_CLOEXEC;
     flags |= match (want_read || !want_write, want_write) {
         (true, true) => libc::O_RDWR,
@@ -598,6 +621,39 @@ fn win_namew(w: LPCWSTR) -> String {
     unsafe { w_ptr_to_string(w) }
 }
 
+/// `SearchPath`: look for `file` in `dir`, or in the usual places (program directory, current directory, the
+/// system directories, then `PATH`), adding `ext` when the name has no extension.
+fn search_path(dir: Option<String>, file: &str, ext: Option<String>) -> Option<String> {
+    let base = file.rsplit(['\\', '/']).next().unwrap_or(file);
+    let name = match &ext {
+        Some(e) if !base.contains('.') => format!("{file}{e}"),
+        _ => file.to_string(),
+    };
+    let is_file = |p: &str| stat_path(p).is_ok_and(|(_, md)| !md.is_dir());
+    if name.contains(':') || name.starts_with('\\') {
+        return is_file(&name).then(|| paths::full_path(&name));
+    }
+    let mut dirs: Vec<String> = Vec::new();
+    match dir {
+        Some(d) => dirs.push(d),
+        None => {
+            if let Some((d, _)) = crate::runtime::cfg().exe_win.rsplit_once('\\') {
+                dirs.push(d.to_string());
+            }
+            dirs.push(paths::cwd_win());
+            dirs.push("C:\\windows\\system32".into());
+            dirs.push("C:\\windows".into());
+            if let Some(p) = crate::runtime::env_get("PATH") {
+                dirs.extend(p.split(';').filter(|d| !d.is_empty()).map(String::from));
+            }
+        }
+    }
+    dirs.iter()
+        .map(|d| format!("{}\\{name}", d.trim_end_matches('\\')))
+        .find(|c| is_file(c))
+        .map(|c| paths::full_path(&c))
+}
+
 crate::shims! { "kernel32";
     fn CreateFileW(name: LPCWSTR, access: DWORD, _share: DWORD, _sec: usize, disposition: DWORD, flags: DWORD, _template: HANDLE) -> HANDLE {
         open_file(&win_namew(name), access, disposition, flags)
@@ -992,6 +1048,41 @@ crate::shims! { "kernel32";
         }
     }
 
+    fn SearchPathW(path: LPCWSTR, file: LPCWSTR, ext: LPCWSTR, size: DWORD, buf: LPWSTR, filepart: *mut LPWSTR) -> DWORD {
+        if file.is_null() {
+            set_last_error(ERROR_INVALID_PARAMETER);
+            return 0;
+        }
+        let dir = (!path.is_null()).then(|| win_namew(path));
+        let ext = (!ext.is_null()).then(|| win_namew(ext));
+        match search_path(dir, &win_namew(file), ext) {
+            Some(found) => get_full_path_w(&found, size, buf, filepart),
+            None => {
+                set_last_error(ERROR_FILE_NOT_FOUND);
+                0
+            }
+        }
+    }
+    fn SearchPathA(path: LPCSTR, file: LPCSTR, ext: LPCSTR, size: DWORD, buf: LPSTR, filepart: *mut LPSTR) -> DWORD {
+        if file.is_null() {
+            set_last_error(ERROR_INVALID_PARAMETER);
+            return 0;
+        }
+        let dir = (!path.is_null()).then(|| win_name(path));
+        let ext = (!ext.is_null()).then(|| win_name(ext));
+        let Some(found) = search_path(dir, &win_name(file), ext) else {
+            set_last_error(ERROR_FILE_NOT_FOUND);
+            return 0;
+        };
+        let r = return_a(buf, size, &found);
+        if !filepart.is_null() {
+            *filepart = match found.rfind('\\') {
+                Some(i) if (r as usize) <= found.len() => buf.add(i + 1),
+                _ => std::ptr::null_mut(),
+            };
+        }
+        r
+    }
     fn GetFullPathNameW(path: LPCWSTR, size: DWORD, buf: LPWSTR, filepart: *mut LPWSTR) -> DWORD {
         get_full_path_w(&win_namew(path), size, buf, filepart)
     }

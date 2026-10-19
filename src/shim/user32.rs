@@ -412,6 +412,9 @@ fn get_pointer() -> (i32, i32) {
 }
 
 crate::shims! { "user32" => USER32_SHIMS;
+    fn WaitForInputIdle(_process: usize, _ms: u32) -> u32 {
+        0
+    }
     fn RegisterClassA(p: *const u8) -> u32 {
         register_class(p, false, false)
     }

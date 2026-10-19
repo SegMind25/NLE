@@ -51,7 +51,7 @@ NLE is a **compatibility layer for x86-64 Windows programs**: console tools, and
 | DLL loading (`LoadLibrary`, import DLLs next to the program, `DllMain`, TLS callbacks) | ARM64 hosts (x86-64 Linux only) |
 | Winsock sockets, `select`, name resolution | registry hive files, Windows services, COM objects |
 | the registry: a persistent hive under the prefix (shared with child processes), seeded with the usual Windows version keys | running as a sandbox: the program has your user's rights |
-| starting child processes (Windows children through `nle`, Linux programs directly) |  |
+| starting child processes (Windows children through `nle`, Linux programs directly, drive-path arguments translated for Linux ones), job objects |  |
 | Unicode, UTF-8 code page, wide-character APIs |  |
 
 A program is not guaranteed to work because it appears in the left column; real programs use hundreds of APIs. Use

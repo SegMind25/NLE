@@ -55,8 +55,13 @@ fn built() -> Option<&'static Built> {
             let out = cmd.output().expect("compiler did not start");
             assert!(out.status.success(), "compile failed:\n{}", String::from_utf8_lossy(&out.stderr));
         };
-        for t in ["t_threads", "t_files", "t_memory", "t_system", "t_unicode", "t_console", "t_process"] {
+        for t in ["t_threads", "t_files", "t_memory", "t_system", "t_unicode", "t_console", "t_process", "t_job", "t_overlay"] {
             run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join(format!("{t}.exe"))).arg(src.join(format!("{t}.c"))));
+        }
+        {
+            use std::io::Write;
+            let mut exe = std::fs::OpenOptions::new().append(true).open(dir.join("t_overlay.exe")).unwrap();
+            exe.write_all(b"NLE-OVERLAY-MARKER!").unwrap();
         }
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_net.exe")).arg(src.join("t_net.c")).arg("-lws2_32"));
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_registry.exe")).arg(src.join("t_registry.c")).arg("-lshlwapi"));
@@ -164,6 +169,8 @@ program_tests! {
     sockets => case("t_net");
     child_processes => case("t_process");
     registry => case("t_registry");
+    job_objects_and_search_path => case("t_job");
+    reading_its_own_file => case("t_overlay");
 }
 
 #[test]

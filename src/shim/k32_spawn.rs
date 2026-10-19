@@ -203,6 +203,17 @@ struct Request<'a> {
     pi: *mut PROCESS_INFORMATION,
 }
 
+/// A Linux program cannot open `Z:\\tmp\\x`, so an argument that is a whole drive path (a launcher passing the script it
+/// was started from, say) is handed over as the host path. Anything else is passed unchanged.
+fn native_arg(arg: &str) -> String {
+    let b = arg.as_bytes();
+    if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/') {
+        paths::resolve(arg).to_string_lossy().into_owned()
+    } else {
+        arg.to_string()
+    }
+}
+
 unsafe fn spawn(req: Request) -> BOOL {
     let Some(target) = find_target(req.app.as_deref(), &req.cmdline) else {
         set_last_error(ERROR_FILE_NOT_FOUND);
@@ -228,7 +239,7 @@ unsafe fn spawn(req: Request) -> BOOL {
         }
         ProgramKind::Native => {
             let mut c = Command::new(&target);
-            c.args(&args);
+            c.args(args.iter().map(|a| native_arg(a)));
             c
         }
     };
@@ -513,4 +524,19 @@ unsafe fn fill_thread(e: &FindEntry, out: *mut u8, _wide: bool) {
     *(out.add(8) as *mut u32) = tid;
     *(out.add(12) as *mut u32) = owner;
     *(out.add(16) as *mut i32) = 8;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::native_arg;
+
+    #[test]
+    fn only_whole_drive_paths_are_translated() {
+        assert_eq!(native_arg("Z:\\usr\\bin\\env"), "/usr/bin/env");
+        assert_eq!(native_arg("z:/usr/bin/env"), "/usr/bin/env");
+        assert_eq!(native_arg("--flag"), "--flag");
+        assert_eq!(native_arg("a:b"), "a:b");
+        assert_eq!(native_arg("--path=Z:\\tmp"), "--path=Z:\\tmp");
+        assert_eq!(native_arg("http://x"), "http://x");
+    }
 }

@@ -139,7 +139,38 @@ pub struct IocpObj {
     pub cv: Condvar,
 }
 
+/// A job object: the limits a program set (kept as the `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` it passed, 144 bytes
+/// on x64) and the child processes assigned to it. Closing the last handle kills the members when the program
+/// asked for `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+pub struct JobObj {
+    pub limits: Mutex<[u8; 144]>,
+    pub members: Mutex<Vec<Arc<Kind>>>,
+}
+
+impl JobObj {
+    pub fn kill_members(&self) {
+        for m in self.members.lock().unwrap().iter() {
+            if let Kind::Process(p) = &**m {
+                let pid = p.pid.load(Ordering::SeqCst);
+                if pid != 0 && !p.done.load(Ordering::SeqCst) && pid != std::process::id() {
+                    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+                }
+            }
+        }
+    }
+}
+
+impl Drop for JobObj {
+    fn drop(&mut self) {
+        let flags = u32::from_le_bytes(self.limits.lock().unwrap()[16..20].try_into().unwrap());
+        if flags & 0x2000 != 0 {
+            self.kill_members();
+        }
+    }
+}
+
 pub enum Kind {
+    Job(JobObj),
     File(FileObj),
     Event(EventObj),
     Mutex(MutexObj),

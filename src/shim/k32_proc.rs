@@ -5,7 +5,7 @@ use crate::runtime::handles::{self, Kind};
 use crate::runtime::{self, paths, strings, teb};
 use crate::win::*;
 use std::sync::atomic::Ordering;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 fn cmdline() -> &'static (Vec<u16>, Vec<u8>) {
     static C: OnceLock<(Vec<u16>, Vec<u8>)> = OnceLock::new();
@@ -70,6 +70,37 @@ pub(crate) fn expand_env(src: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+const ERROR_BAD_LENGTH: DWORD = 24;
+
+fn new_job() -> HANDLE {
+    handles::insert(Kind::Job(handles::JobObj { limits: Mutex::new([0; 144]), members: Mutex::new(Vec::new()) }))
+}
+
+fn job_of(h: HANDLE) -> Option<Arc<Kind>> {
+    let k = handles::get(h).filter(|k| matches!(&**k, Kind::Job(_)));
+    if k.is_none() {
+        set_last_error(ERROR_INVALID_HANDLE);
+    }
+    k
+}
+
+fn job_ref(k: &Kind) -> &handles::JobObj {
+    match k {
+        Kind::Job(j) => j,
+        _ => unreachable!("job_of only returns jobs"),
+    }
+}
+
+/// Size of the information classes programs use: basic and extended limits, UI restrictions, end-of-job time.
+fn job_info_size(class: u32) -> Option<usize> {
+    match class {
+        2 => Some(64),
+        4 | 6 => Some(4),
+        9 => Some(144),
+        _ => None,
+    }
 }
 
 fn module_path(h: usize) -> Option<String> {
@@ -200,6 +231,90 @@ crate::shims! { "kernel32";
 
     fn GetCurrentProcess() -> HANDLE {
         CURRENT_PROCESS
+    }
+
+    fn CreateJobObjectW(_attrs: usize, _name: LPCWSTR) -> HANDLE {
+        new_job()
+    }
+    fn CreateJobObjectA(_attrs: usize, _name: LPCSTR) -> HANDLE {
+        new_job()
+    }
+    fn SetInformationJobObject(job: HANDLE, class: u32, info: *const u8, len: u32) -> BOOL {
+        let Some(k) = job_of(job) else { return FALSE };
+        let j = job_ref(&k);
+        let Some(size) = job_info_size(class) else {
+            set_last_error(ERROR_INVALID_PARAMETER);
+            return FALSE;
+        };
+        if info.is_null() || len < size as u32 {
+            set_last_error(ERROR_BAD_LENGTH);
+            return FALSE;
+        }
+        // The basic and extended limit structures share their first 64 bytes, so one buffer serves both.
+        if class == 2 || class == 9 {
+            std::ptr::copy_nonoverlapping(info, j.limits.lock().unwrap().as_mut_ptr(), size);
+        }
+        TRUE
+    }
+    fn QueryInformationJobObject(job: HANDLE, class: u32, info: *mut u8, len: u32, returned: *mut u32) -> BOOL {
+        let Some(k) = job_of(job) else { return FALSE };
+        let j = job_ref(&k);
+        let Some(size) = job_info_size(class) else {
+            set_last_error(ERROR_INVALID_PARAMETER);
+            return FALSE;
+        };
+        if info.is_null() || len < size as u32 {
+            set_last_error(ERROR_BAD_LENGTH);
+            return FALSE;
+        }
+        let out = std::slice::from_raw_parts_mut(info, size);
+        out.fill(0);
+        if class == 2 || class == 9 {
+            out.copy_from_slice(&j.limits.lock().unwrap()[..size]);
+        }
+        if !returned.is_null() {
+            *returned = size as u32;
+        }
+        TRUE
+    }
+    fn AssignProcessToJobObject(job: HANDLE, process: HANDLE) -> BOOL {
+        let Some(k) = job_of(job) else { return FALSE };
+        let j = job_ref(&k);
+        if process == CURRENT_PROCESS {
+            return TRUE;
+        }
+        match handles::get(process) {
+            Some(p) if matches!(&*p, Kind::Process(_)) => {
+                j.members.lock().unwrap().push(p);
+                TRUE
+            }
+            _ => {
+                set_last_error(ERROR_INVALID_HANDLE);
+                FALSE
+            }
+        }
+    }
+    fn TerminateJobObject(job: HANDLE, _exit_code: u32) -> BOOL {
+        let Some(k) = job_of(job) else { return FALSE };
+        let j = job_ref(&k);
+        j.kill_members();
+        TRUE
+    }
+    fn IsProcessInJob(process: HANDLE, job: HANDLE, result: *mut BOOL) -> BOOL {
+        let member = |j: &handles::JobObj| {
+            process != CURRENT_PROCESS
+                && handles::get(process).is_some_and(|p| j.members.lock().unwrap().iter().any(|m| Arc::ptr_eq(m, &p)))
+        };
+        let inside = if job == 0 {
+            false
+        } else {
+            match job_of(job) {
+                Some(k) => member(job_ref(&k)),
+                None => return FALSE,
+            }
+        };
+        *result = inside as BOOL;
+        TRUE
     }
     fn GetCurrentProcessId() -> DWORD {
         libc::getpid() as DWORD

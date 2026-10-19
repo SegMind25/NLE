@@ -90,6 +90,11 @@ The dynamic section has `DT_NEEDED` entries for `libnle.so` and `libc.so.6` and 
 `loader::attach_mapped`: the image is already in memory, so only import binding, TLS and DLL loading remain. Because the PE sits at its original addresses, nothing in the program
 has to be rewritten.
 
+When the original file has data after its last section (an appended archive, a certificate), the relinker appends the
+whole original file after the last segment. A program that opens its own path for reading then gets those original
+bytes, as a memory file, so launchers and self-extracting programs find their payload; anything else that opens that
+path, such as a program starting itself again, gets the ELF.
+
 Programs that locate themselves with `GetModuleFileName` get `<dir>/<original>.exe`. That file is not shipped, so
 opening that exact path opens the ELF instead; a program that starts itself again therefore starts the ELF.
 
