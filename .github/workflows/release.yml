@@ -3,9 +3,18 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # builds the release for a version without pushing the tag by hand: the release creates the tag
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "version tag to release, for example v0.2.0"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -16,7 +25,7 @@ jobs:
       - run: cargo build --release
       - name: Package
         run: |
-          name="nle-${GITHUB_REF_NAME}-linux-x86_64"
+          name="nle-${TAG}-linux-x86_64"
           mkdir -p "$name/lib/nle" "$name/bin" "$name/share/applications" "$name/share/icons/hicolor/256x256/apps"
           cp target/release/nle "$name/bin/"
           cp target/release/libnle.so "$name/lib/nle/"
@@ -26,5 +35,7 @@ jobs:
           tar czf "$name.tar.gz" "$name"
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
           files: nle-*.tar.gz
           generate_release_notes: true
