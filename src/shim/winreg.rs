@@ -307,7 +307,7 @@ fn write_node(out: &mut String, path: &str, n: &Node) {
 
 impl State {
     fn serialize(&self) -> String {
-        let mut out = String::from("ANYEXE-REGISTRY 1\n");
+        let mut out = String::from("NLE-REGISTRY 1\n");
         for (r, n) in &self.roots {
             write_node(&mut out, r, n);
         }

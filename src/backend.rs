@@ -28,7 +28,7 @@ fn which(name: &str) -> Option<PathBuf> {
 
 /// Locates a Wine launcher.
 pub fn find_wine() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("ANYEXE_WINE") {
+    if let Some(p) = std::env::var_os("NLE_WINE") {
         let p = PathBuf::from(p);
         if p.is_file() {
             return Some(p);

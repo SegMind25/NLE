@@ -2,5 +2,5 @@
 *.exe
 *.dll
 !tests/fixtures/**
-.anyexe-prefix/
+.nle-prefix/
 *.swp

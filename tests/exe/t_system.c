@@ -18,19 +18,19 @@ int main(int argc, char **argv) {
     CHECK_STR(argv[2], "second");
 
     char buf[512];
-    CHECK(SetEnvironmentVariableA("ANYEXE_T1", "value1"));
-    CHECK_EQ_INT(GetEnvironmentVariableA("ANYEXE_T1", buf, sizeof buf), 6);
+    CHECK(SetEnvironmentVariableA("NLE_T1", "value1"));
+    CHECK_EQ_INT(GetEnvironmentVariableA("NLE_T1", buf, sizeof buf), 6);
     CHECK_STR(buf, "value1");
-    CHECK_EQ_INT(GetEnvironmentVariableA("anyexe_t1", buf, sizeof buf), 6);
-    CHECK_EQ_INT(GetEnvironmentVariableA("ANYEXE_T1", buf, 3), 7);
-    CHECK_EQ_INT(GetEnvironmentVariableA("ANYEXE_NOPE", buf, sizeof buf), 0);
+    CHECK_EQ_INT(GetEnvironmentVariableA("nle_t1", buf, sizeof buf), 6);
+    CHECK_EQ_INT(GetEnvironmentVariableA("NLE_T1", buf, 3), 7);
+    CHECK_EQ_INT(GetEnvironmentVariableA("NLE_NOPE", buf, sizeof buf), 0);
     CHECK_EQ_INT(GetLastError(), ERROR_ENVVAR_NOT_FOUND);
-    ExpandEnvironmentStringsA("[%ANYEXE_T1%][%NOPE_NOT_SET%]", buf, sizeof buf);
+    ExpandEnvironmentStringsA("[%NLE_T1%][%NOPE_NOT_SET%]", buf, sizeof buf);
     CHECK_STR(buf, "[value1][%NOPE_NOT_SET%]");
     CHECK(GetEnvironmentVariableA("USERPROFILE", buf, sizeof buf) > 0);
     CHECK(strncmp(buf, "C:\\", 3) == 0);
-    SetEnvironmentVariableA("ANYEXE_T1", NULL);
-    CHECK_EQ_INT(GetEnvironmentVariableA("ANYEXE_T1", buf, sizeof buf), 0);
+    SetEnvironmentVariableA("NLE_T1", NULL);
+    CHECK_EQ_INT(GetEnvironmentVariableA("NLE_T1", buf, sizeof buf), 0);
     LPCH block = GetEnvironmentStrings();
     int vars = 0;
     for (LPCH p = block; *p; p += strlen(p) + 1) vars++;

@@ -98,12 +98,12 @@ int main(void) {
     CHECK_EQ_INT(a[500], 7);
 
     /* file mapping shared between views and threads */
-    HANDLE map = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 8192, "anyexe_map_test");
+    HANDLE map = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 8192, "nle_map_test");
     CHECK(map != NULL);
     char *v1 = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     CHECK(v1 != NULL);
     strcpy(v1, "SHARED");
-    HANDLE map2 = OpenFileMappingA(FILE_MAP_READ, FALSE, "anyexe_map_test");
+    HANDLE map2 = OpenFileMappingA(FILE_MAP_READ, FALSE, "nle_map_test");
     CHECK(map2 != NULL);
     char *v2 = MapViewOfFile(map2, FILE_MAP_READ, 0, 0, 0);
     CHECK(v2 != NULL && v2 != v1);

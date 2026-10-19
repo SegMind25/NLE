@@ -85,7 +85,7 @@ fn module_path(h: usize) -> Option<String> {
 unsafe fn load_library(name: &str) -> HMODULE {
     let h = load_library_inner(name);
     if runtime::cfg().trace.api {
-        eprintln!("anyexe[api]: LoadLibrary({name}) -> {}", if h == 0 { "NULL".to_string() } else { format!("0x{h:x}") });
+        eprintln!("nle[api]: LoadLibrary({name}) -> {}", if h == 0 { "NULL".to_string() } else { format!("0x{h:x}") });
     }
     h
 }
@@ -588,7 +588,7 @@ crate::shims! { "kernel32";
         };
         if runtime::cfg().trace.api {
             let m = loader::fake_module_name(h).or_else(|| loader::module_by_base(h).map(|m| m.name.clone())).unwrap_or_else(|| format!("0x{h:x}"));
-            eprintln!("anyexe[api]: GetProcAddress({m}, {label}) -> {}", r.map_or("NULL".to_string(), |a| format!("0x{a:x}")));
+            eprintln!("nle[api]: GetProcAddress({m}, {label}) -> {}", r.map_or("NULL".to_string(), |a| format!("0x{a:x}")));
         }
         match r {
             Some(a) => a,
@@ -819,8 +819,8 @@ mod tests {
 
     #[test]
     fn env_expansion() {
-        runtime::env_set("ANYEXE_TEST_VAR", Some("value"));
-        assert_eq!(expand_env("a%ANYEXE_TEST_VAR%b"), "avalueb");
+        runtime::env_set("NLE_TEST_VAR", Some("value"));
+        assert_eq!(expand_env("a%NLE_TEST_VAR%b"), "avalueb");
         assert_eq!(expand_env("%UNDEFINED_X%"), "%UNDEFINED_X%");
         assert_eq!(expand_env("100%"), "100%");
     }

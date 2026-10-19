@@ -1,20 +1,22 @@
 [package]
-name = "anyexe"
+name = "nle"
 version = "0.1.0"
 edition = "2021"
-description = "Run Windows .exe files as native Linux processes: PE loader + reimplemented Win32/CRT libraries, no emulation"
+description = "NLE (Native Linux Exe): run Windows .exe files as native Linux programs. PE loader + reimplemented Win32/CRT libraries, no emulation"
+keywords = ["windows", "pe", "elf", "compatibility", "exe"]
+categories = ["command-line-utilities", "os::linux-apis"]
 license = "MIT"
 repository = "https://github.com/SegMind25/NLE"
 readme = "README.md"
 rust-version = "1.88"
 
 [lib]
-name = "anyexe"
+name = "nle"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "anyexe"
+name = "nle"
 path = "src/main.rs"
 
 [dependencies]

@@ -267,7 +267,7 @@ crate::shims! { "ws2_32" => WS2_SHIMS;
             *(data.add(2) as *mut u16) = 0x0202;
             *(data.add(4) as *mut u16) = 32767;
             *(data.add(6) as *mut u16) = 65467;
-            let d = b"AnyEXE Winsock 2.2";
+            let d = b"NLE Winsock 2.2";
             std::ptr::copy_nonoverlapping(d.as_ptr(), data.add(16), d.len());
             let st = b"Running";
             std::ptr::copy_nonoverlapping(st.as_ptr(), data.add(273), st.len());

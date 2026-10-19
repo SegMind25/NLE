@@ -270,7 +270,7 @@ pub fn to_json(path: &str, r: &Report) -> String {
 }
 
 pub fn print_report(path: &str, r: &Report, verbose: bool) {
-    println!("{path}");
+    println!("{}", crate::ui::bold(path));
     println!("  format      PE32+ {} ({})", r.arch, r.subsystem);
     println!("  image base  0x{:x}, entry RVA 0x{:x}", r.image_base, r.entry_rva);
     let mut feats = Vec::new();
@@ -290,12 +290,12 @@ pub fn print_report(path: &str, r: &Report, verbose: bool) {
     println!("  imports");
     for (dll, l) in &r.libs {
         let total = l.resolved + l.unresolved;
-        let mark = if l.unresolved == 0 { "ok " } else { "!! " };
-        println!("    {mark}{dll:<34} {}/{} implemented", l.resolved, total);
+        let mark = if l.unresolved == 0 { crate::ui::green("ok") } else { crate::ui::yellow("!!") };
+        println!("    {mark} {dll:<34} {}/{} implemented", l.resolved, total);
     }
     if !r.bundled.is_empty() {
         for b in &r.bundled {
-            println!("    ok {:<34} bundled with the application", b.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+            println!("    {} {:<34} bundled with the application", crate::ui::green("ok"), b.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
         }
     }
     let un = r.unresolved();
@@ -317,5 +317,10 @@ pub fn print_report(path: &str, r: &Report, verbose: bool) {
         Verdict::Partial => "partial: runs natively until it calls a missing API; Wine recommended if installed",
         Verdict::Unsupported => "unsupported by the native layer: use the Wine backend",
     };
-    println!("  verdict     {summary}");
+    let styled = match r.verdict {
+        Verdict::Native => crate::ui::green(summary),
+        Verdict::Partial => crate::ui::yellow(summary),
+        Verdict::Unsupported => crate::ui::red(summary),
+    };
+    println!("  verdict     {styled}");
 }

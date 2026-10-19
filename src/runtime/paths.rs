@@ -11,19 +11,19 @@ use std::sync::OnceLock;
 static PREFIX: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn default_prefix() -> PathBuf {
-    if let Ok(p) = std::env::var("ANYEXE_PREFIX") {
+    if let Ok(p) = std::env::var("NLE_PREFIX") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
     }
     if let Ok(x) = std::env::var("XDG_DATA_HOME") {
         if !x.is_empty() {
-            return PathBuf::from(x).join("anyexe/prefix");
+            return PathBuf::from(x).join("nle/prefix");
         }
     }
     match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() => PathBuf::from(h).join(".local/share/anyexe/prefix"),
-        _ => PathBuf::from(format!("/tmp/anyexe-prefix-{}", unsafe { libc::getuid() })),
+        Ok(h) if !h.is_empty() => PathBuf::from(h).join(".local/share/nle/prefix"),
+        _ => PathBuf::from(format!("/tmp/nle-prefix-{}", unsafe { libc::getuid() })),
     }
 }
 
@@ -49,7 +49,7 @@ pub fn init_prefix(prefix: PathBuf) -> PathBuf {
     let chosen = if make(&prefix).is_ok() {
         prefix
     } else {
-        let fallback = PathBuf::from(format!("/tmp/anyexe-prefix-{}", unsafe { libc::getuid() }));
+        let fallback = PathBuf::from(format!("/tmp/nle-prefix-{}", unsafe { libc::getuid() }));
         let _ = make(&fallback);
         fallback
     };
@@ -280,13 +280,13 @@ mod tests {
     use super::*;
 
     fn setup() {
-        let _ = PREFIX.set(PathBuf::from("/tmp/anyexe-test-prefix"));
+        let _ = PREFIX.set(PathBuf::from("/tmp/nle-test-prefix"));
     }
 
     #[test]
     fn drive_mapping() {
         setup();
-        assert_eq!(win_to_host_str("C:\\Windows\\System32"), "/tmp/anyexe-test-prefix/drive_c/Windows/System32");
+        assert_eq!(win_to_host_str("C:\\Windows\\System32"), "/tmp/nle-test-prefix/drive_c/Windows/System32");
         assert_eq!(win_to_host_str("Z:\\usr\\bin"), "/usr/bin");
         assert_eq!(win_to_host_str("Z:\\"), "/");
         assert_eq!(win_to_host_str("\\\\?\\Z:\\tmp"), "/tmp");
@@ -298,7 +298,7 @@ mod tests {
         setup();
         assert_eq!(host_to_win(Path::new("/usr/bin")), "Z:\\usr\\bin");
         assert_eq!(host_to_win(Path::new("/")), "Z:\\");
-        assert_eq!(host_to_win(Path::new("/tmp/anyexe-test-prefix/drive_c/users/x")), "C:\\users\\x");
+        assert_eq!(host_to_win(Path::new("/tmp/nle-test-prefix/drive_c/users/x")), "C:\\users\\x");
     }
 
     #[test]
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn case_insensitive_lookup() {
-        let dir = std::env::temp_dir().join(format!("anyexe-ci-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nle-ci-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("SubDir")).unwrap();
         std::fs::write(dir.join("SubDir/Hello.TXT"), b"x").unwrap();
         let got = ci_resolve(&dir.join("subdir/hello.txt"));

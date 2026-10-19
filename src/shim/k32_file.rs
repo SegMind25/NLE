@@ -1056,7 +1056,7 @@ crate::shims! { "kernel32";
     }
     fn GetVolumeInformationW(_root: LPCWSTR, vol: LPWSTR, vol_size: DWORD, serial: *mut DWORD, max_comp: *mut DWORD, flags: *mut DWORD, fs: LPWSTR, fs_size: DWORD) -> BOOL {
         if !vol.is_null() {
-            copy_w(vol, vol_size as usize, &to_wide("anyexe"));
+            copy_w(vol, vol_size as usize, &to_wide("nle"));
         }
         if !serial.is_null() {
             *serial = 0x1234_5678;

@@ -4,7 +4,7 @@
 #include <string.h>
 #include "check.h"
 
-#define APP "Software\\AnyexeTest\\Registry"
+#define APP "Software\\NleTest\\Registry"
 
 static int child_main(void) {
     char buf[64] = {0};
@@ -19,14 +19,14 @@ int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "child")) return child_main();
 
     HKEY k;
-    RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\AnyexeTest");
+    RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\NleTest");
     CHECK_EQ_INT(RegOpenKeyExA(HKEY_CURRENT_USER, APP, 0, KEY_READ, &k), ERROR_FILE_NOT_FOUND);
 
     DWORD disp = 0;
     CHECK_EQ_INT(RegCreateKeyExA(HKEY_CURRENT_USER, APP, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &k, &disp), ERROR_SUCCESS);
     CHECK_EQ_INT(disp, REG_CREATED_NEW_KEY);
     HKEY k2;
-    CHECK_EQ_INT(RegCreateKeyExA(HKEY_CURRENT_USER, "SOFTWARE\\anyexetest\\registry", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &k2, &disp), ERROR_SUCCESS);
+    CHECK_EQ_INT(RegCreateKeyExA(HKEY_CURRENT_USER, "SOFTWARE\\nletest\\registry", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &k2, &disp), ERROR_SUCCESS);
     CHECK_EQ_INT(disp, REG_OPENED_EXISTING_KEY);
     RegCloseKey(k2);
 
@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
     CHECK_EQ_INT(RegDeleteValueA(k, "Number"), ERROR_FILE_NOT_FOUND);
     RegCloseKey(k);
     CHECK_EQ_INT(RegDeleteKeyA(HKEY_CURRENT_USER, APP), ERROR_ACCESS_DENIED);
-    CHECK_EQ_INT(RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\AnyexeTest"), ERROR_SUCCESS);
+    CHECK_EQ_INT(RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\NleTest"), ERROR_SUCCESS);
     CHECK_EQ_INT(RegOpenKeyExA(HKEY_CURRENT_USER, APP, 0, KEY_READ, &k), ERROR_FILE_NOT_FOUND);
     return finish();
 }

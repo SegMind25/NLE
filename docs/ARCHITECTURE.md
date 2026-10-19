@@ -1,6 +1,6 @@
 # Architecture
 
-AnyEXE has no emulator and no translator. The program's own x86-64 instructions run on the CPU. What AnyEXE provides is
+NLE has no emulator and no translator. The program's own x86-64 instructions run on the CPU. What NLE provides is
 everything *around* them: a loader that puts the image in memory the way Windows would, thread state at the addresses
 Windows code looks at, and Rust implementations of the library functions the program imports.
 
@@ -11,7 +11,7 @@ Windows code looks at, and Rust implementations of the library functions the pro
                             registry.rs ◄──── shim/*.rs  (kernel32, ntdll, msvcrt/ucrt, ws2_32, ...)
                                                     │
                                                     └──► libc / the Linux kernel
- app.exe ──relink──► relink.rs ──► ELF file ──kernel + ld.so──► anyexe_relinked_main ──► same loader path
+ app.exe ──relink──► relink.rs ──► ELF file ──kernel + ld.so──► nle_relinked_main ──► same loader path
 ```
 
 ## Calling convention
@@ -82,11 +82,11 @@ when zero-initialised, as the Windows ones do.
 | `PT_LOAD` (R+W) | the dynamic section and a small GOT |
 | `PT_INTERP`, `PT_DYNAMIC`, `PT_NOTE`, `PT_GNU_STACK` | as usual |
 
-The dynamic section has `DT_NEEDED` entries for `libanyexe.so` and `libc.so.6` and `DT_RUNPATH=$ORIGIN` (override with
-`--rpath`). The entry stub calls `__libc_start_main(anyexe_relinked_main, ...)`, so libc initialises normally. The
-`PT_NOTE` (name `ANYEXE`) records the image base, size and the original file name.
+The dynamic section has `DT_NEEDED` entries for `libnle.so` and `libc.so.6` and `DT_RUNPATH=$ORIGIN` (override with
+`--rpath`). The entry stub calls `__libc_start_main(nle_relinked_main, ...)`, so libc initialises normally. The
+`PT_NOTE` (name `NLE`) records the image base, size and the original file name.
 
-`anyexe_relinked_main` finds that note, sets up the runtime exactly as `anyexe run` would, and calls
+`nle_relinked_main` finds that note, sets up the runtime exactly as `nle run` would, and calls
 `loader::attach_mapped`: the image is already in memory, so only import binding, TLS and DLL loading remain. Because the PE sits at its original addresses, nothing in the program
 has to be rewritten.
 
@@ -100,7 +100,7 @@ opening that exact path opens the ELF instead; a program that starts itself agai
 | verdict | meaning | `--backend auto` |
 | --- | --- | --- |
 | native | every import is implemented | native |
-| partial | some imports are missing | Wine if found (`ANYEXE_WINE`, `wine64`, `wine`, `wine-stable`), else native with a warning |
+| partial | some imports are missing | Wine if found (`NLE_WINE`, `wine64`, `wine`, `wine-stable`), else native with a warning |
 | unsupported | 32-bit or ARM64 code, .NET, a DLL given as the program | Wine if found, else refuse |
 
 ## Adding a Windows function
@@ -121,9 +121,9 @@ registers aliases and data exports. Then:
 
 1. add a check to a program in `tests/exe` (or a new one, and list it in `tests/windows_programs.rs`),
 2. `cargo test --release`,
-3. regenerate the list: `target/release/anyexe coverage --markdown > docs/COVERAGE.md` (CI fails when it is stale).
+3. regenerate the list: `target/release/nle coverage --markdown > docs/COVERAGE.md` (CI fails when it is stale).
 
-`ANYEXE_TRACE=api` prints the libraries and functions the program looks up at run time (`LoadLibrary`, `GetProcAddress`).
+`NLE_TRACE=api` prints the libraries and functions the program looks up at run time (`LoadLibrary`, `GetProcAddress`).
 An unimplemented import is reported with the caller's address when the program calls it, which is usually enough to
 find what is missing.
 

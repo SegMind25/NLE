@@ -159,7 +159,7 @@ fn ensure_ctrl_thread() {
         libc::signal(libc::SIGINT, on_sigint as *const () as usize);
     }
     let rfd = fds[0];
-    let _ = std::thread::Builder::new().name("anyexe-ctrl".into()).spawn(move || unsafe {
+    let _ = std::thread::Builder::new().name("nle-ctrl".into()).spawn(move || unsafe {
         let teb_ptr = teb::setup_thread();
         loop {
             let mut b = [0u8; 1];

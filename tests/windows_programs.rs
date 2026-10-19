@@ -1,5 +1,5 @@
 //! Builds the C/C++ programs in `tests/exe` with MinGW-w64 and runs them twice: through
-//! `anyexe run` and as native ELF files produced by `anyexe relink`.
+//! `nle run` and as native ELF files produced by `nle relink`.
 //!
 //! Every program prints `ALL OK (N checks)` and exits 0 when its checks pass. When MinGW is not
 //! installed the tests print a notice and pass, so the suite stays usable on any machine; CI
@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
-fn anyexe() -> &'static str {
-    env!("CARGO_BIN_EXE_anyexe")
+fn nle() -> &'static str {
+    env!("CARGO_BIN_EXE_nle")
 }
 
 fn tool(name: &str) -> Option<PathBuf> {
@@ -22,7 +22,7 @@ struct Built {
     dir: PathBuf,
 }
 
-/// `cargo test` rebuilds the library for the tests but not the `libanyexe.so` that `relink` copies
+/// `cargo test` rebuilds the library for the tests but not the `libnle.so` that `relink` copies
 /// next to its output, so refresh it once; a stale copy would test yesterday's runtime.
 fn refresh_runtime_library() {
     static ONCE: OnceLock<()> = OnceLock::new();
@@ -30,13 +30,13 @@ fn refresh_runtime_library() {
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = Command::new(cargo);
         cmd.args(["build", "--lib"]).current_dir(env!("CARGO_MANIFEST_DIR"));
-        if anyexe().contains("/release/") {
+        if nle().contains("/release/") {
             cmd.arg("--release");
         }
         match cmd.output() {
             Ok(o) if o.status.success() => {}
-            Ok(o) => eprintln!("warning: could not refresh libanyexe.so: {}", String::from_utf8_lossy(&o.stderr)),
-            Err(e) => eprintln!("warning: could not run cargo to refresh libanyexe.so: {e}"),
+            Ok(o) => eprintln!("warning: could not refresh libnle.so: {}", String::from_utf8_lossy(&o.stderr)),
+            Err(e) => eprintln!("warning: could not run cargo to refresh libnle.so: {e}"),
         }
     });
 }
@@ -103,11 +103,11 @@ fn check_run(c: &Case) {
         eprintln!("skipping {}: MinGW-w64 (x86_64-w64-mingw32-gcc) is not installed", c.name);
         return;
     };
-    let mut cmd = Command::new(anyexe());
+    let mut cmd = Command::new(nle());
     cmd.arg("run").arg(b.dir.join(format!("{}.exe", c.name))).args(c.args).current_dir(&b.dir);
-    cmd.env("ANYEXE_PREFIX", b.dir.join(format!("prefix-run-{}", c.name)));
+    cmd.env("NLE_PREFIX", b.dir.join(format!("prefix-run-{}", c.name)));
     let (ok, text) = exec(cmd, c.stdin);
-    assert!(ok && text.contains("ALL OK"), "{} failed under `anyexe run`:\n{text}", c.name);
+    assert!(ok && text.contains("ALL OK"), "{} failed under `nle run`:\n{text}", c.name);
 }
 
 fn check_relinked(c: &Case) {
@@ -118,7 +118,7 @@ fn check_relinked(c: &Case) {
     refresh_runtime_library();
     let out = b.dir.join(format!("relinked-{}", c.name));
     let _ = std::fs::remove_dir_all(&out);
-    let status = Command::new(anyexe())
+    let status = Command::new(nle())
         .arg("relink")
         .arg(b.dir.join(format!("{}.exe", c.name)))
         .arg("-o")
@@ -126,15 +126,15 @@ fn check_relinked(c: &Case) {
         .output()
         .expect("relink did not start");
     assert!(status.status.success(), "relink failed: {}", String::from_utf8_lossy(&status.stderr));
-    if !out.join("libanyexe.so").exists() {
-        eprintln!("skipping the relinked {}: libanyexe.so was not built next to the anyexe binary (run `cargo build` first)", c.name);
+    if !out.join("libnle.so").exists() {
+        eprintln!("skipping the relinked {}: libnle.so was not built next to the nle binary (run `cargo build` first)", c.name);
         return;
     }
     let elf = out.join(c.name);
     assert!(std::fs::read(&elf).unwrap().starts_with(b"\x7fELF"), "relink must produce an ELF file");
     let mut cmd = Command::new(&elf);
     cmd.args(c.args).current_dir(&out);
-    cmd.env("ANYEXE_PREFIX", b.dir.join(format!("prefix-relinked-{}", c.name)));
+    cmd.env("NLE_PREFIX", b.dir.join(format!("prefix-relinked-{}", c.name)));
     let (ok, text) = exec(cmd, c.stdin);
     assert!(ok && text.contains("ALL OK"), "{} failed as a relinked ELF:\n{text}", c.name);
 }
@@ -179,14 +179,14 @@ fn relinked_hello_returns_its_exit_code() {
     std::fs::write(&src, "#include <stdio.h>\nint main(int argc, char **argv) { printf(\"hello %d\\n\", argc); return argc; }\n").unwrap();
     let exe = dir.join("hello.exe");
     assert!(Command::new(gcc).args(["-O1", "-o"]).arg(&exe).arg(&src).status().unwrap().success());
-    let direct = Command::new(anyexe()).arg("run").arg(&exe).args(["a", "b"]).output().unwrap();
+    let direct = Command::new(nle()).arg("run").arg(&exe).args(["a", "b"]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&direct.stdout), "hello 3\n");
     assert_eq!(direct.status.code(), Some(3));
 
     refresh_runtime_library();
     let out = dir.join("out");
-    assert!(Command::new(anyexe()).arg("relink").arg(&exe).arg("-o").arg(&out).output().unwrap().status.success());
-    if !out.join("libanyexe.so").exists() {
+    assert!(Command::new(nle()).arg("relink").arg(&exe).arg("-o").arg(&out).output().unwrap().status.success());
+    if !out.join("libnle.so").exists() {
         return;
     }
     let elf = Command::new(out.join("hello")).args(["a", "b"]).output().unwrap();
@@ -200,10 +200,10 @@ fn inspect_reports_a_native_verdict() {
         eprintln!("skipping: MinGW-w64 is not installed");
         return;
     };
-    let out = Command::new(anyexe()).arg("inspect").arg(b.dir.join("t_files.exe")).output().unwrap();
+    let out = Command::new(nle()).arg("inspect").arg(b.dir.join("t_files.exe")).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("verdict     native"), "{text}");
-    let json = Command::new(anyexe()).args(["inspect", "--json"]).arg(b.dir.join("t_files.exe")).output().unwrap();
+    let json = Command::new(nle()).args(["inspect", "--json"]).arg(b.dir.join("t_files.exe")).output().unwrap();
     assert!(String::from_utf8_lossy(&json.stdout).trim_start().starts_with('{'));
 }
 
@@ -212,24 +212,24 @@ fn rejects_files_that_are_not_windows_executables() {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let bogus = dir.join("not_a_program.exe");
     std::fs::write(&bogus, b"this is not a PE file").unwrap();
-    let out = Command::new(anyexe()).arg("run").arg(&bogus).output().unwrap();
+    let out = Command::new(nle()).arg("run").arg(&bogus).output().unwrap();
     assert_eq!(out.status.code(), Some(126));
-    let missing = Command::new(anyexe()).arg("run").arg(dir.join("missing.exe")).output().unwrap();
+    let missing = Command::new(nle()).arg("run").arg(dir.join("missing.exe")).output().unwrap();
     assert_eq!(missing.status.code(), Some(127));
 }
 
 /// Go and Rust programs bring their own runtimes (no C library). They are cross-compiled when the
 /// toolchains are present.
 fn cross_check(name: &str, exe: &Path, expect_stdout: &str, expect_code: i32) {
-    let direct = Command::new(anyexe()).arg("run").arg(exe).args(["a", "b"]).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&direct.stdout), expect_stdout, "{name} under `anyexe run`: {}", String::from_utf8_lossy(&direct.stderr));
-    assert_eq!(direct.status.code(), Some(expect_code), "{name} exit code under `anyexe run`");
+    let direct = Command::new(nle()).arg("run").arg(exe).args(["a", "b"]).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&direct.stdout), expect_stdout, "{name} under `nle run`: {}", String::from_utf8_lossy(&direct.stderr));
+    assert_eq!(direct.status.code(), Some(expect_code), "{name} exit code under `nle run`");
     refresh_runtime_library();
     let out = exe.with_file_name(format!("{name}-linux"));
     let _ = std::fs::remove_dir_all(&out);
-    let relink = Command::new(anyexe()).arg("relink").arg(exe).arg("-o").arg(&out).output().unwrap();
+    let relink = Command::new(nle()).arg("relink").arg(exe).arg("-o").arg(&out).output().unwrap();
     assert!(relink.status.success(), "{}", String::from_utf8_lossy(&relink.stderr));
-    if !out.join("libanyexe.so").exists() {
+    if !out.join("libnle.so").exists() {
         return;
     }
     let stem = exe.file_stem().unwrap();

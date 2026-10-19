@@ -29,7 +29,7 @@ pub fn process_heap() -> usize {
 unsafe fn map_zeroed(size: usize) -> *mut u8 {
     let p = libc::mmap(std::ptr::null_mut(), size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0);
     if p == libc::MAP_FAILED {
-        eprintln!("anyexe: out of memory allocating {size} bytes");
+        eprintln!("nle: out of memory allocating {size} bytes");
         libc::_exit(70);
     }
     p as *mut u8
@@ -239,7 +239,7 @@ pub unsafe fn init_kuser() -> bool {
 
 /// Keeps the clock fields of KUSER_SHARED_DATA current (some runtimes read time from there directly).
 pub fn start_kuser_updater() {
-    let _ = std::thread::Builder::new().name("anyexe-kuser".into()).spawn(|| loop {
+    let _ = std::thread::Builder::new().name("nle-kuser".into()).spawn(|| loop {
         unsafe { kuser_update(KUSER_SHARED_DATA as *mut u8) };
         std::thread::sleep(std::time::Duration::from_millis(1));
     });
@@ -273,10 +273,10 @@ pub fn processor_features() -> [bool; 64] {
 // ---- calling into guest code ------------------------------------------------------------------
 global_asm!(
     r#"
-    .globl anyexe_call_guest
-    .hidden anyexe_call_guest
-    .type anyexe_call_guest,@function
-anyexe_call_guest:
+    .globl nle_call_guest
+    .hidden nle_call_guest
+    .type nle_call_guest,@function
+nle_call_guest:
     push rbp
     push rbx
     push r12
@@ -288,9 +288,9 @@ anyexe_call_guest:
     mov rcx, rsi
     call rdi
     add rsp, 40
-    .globl anyexe_guest_epilogue
-    .hidden anyexe_guest_epilogue
-anyexe_guest_epilogue:
+    .globl nle_guest_epilogue
+    .hidden nle_guest_epilogue
+nle_guest_epilogue:
     pop r15
     pop r14
     pop r13
@@ -298,22 +298,22 @@ anyexe_guest_epilogue:
     pop rbx
     pop rbp
     ret
-    .size anyexe_call_guest, .-anyexe_call_guest
+    .size nle_call_guest, .-nle_call_guest
 
-    .globl anyexe_escape
-    .hidden anyexe_escape
-    .type anyexe_escape,@function
-anyexe_escape:
+    .globl nle_escape
+    .hidden nle_escape
+    .type nle_escape,@function
+nle_escape:
     mov rsp, rdi
     mov eax, esi
-    jmp anyexe_guest_epilogue
-    .size anyexe_escape, .-anyexe_escape
+    jmp nle_guest_epilogue
+    .size nle_escape, .-nle_escape
 "#
 );
 
 extern "C" {
-    fn anyexe_call_guest(f: usize, arg: usize, slot: *mut usize) -> u32;
-    fn anyexe_escape(saved_sp: usize, code: u32) -> !;
+    fn nle_call_guest(f: usize, arg: usize, slot: *mut usize) -> u32;
+    fn nle_escape(saved_sp: usize, code: u32) -> !;
 }
 
 thread_local! {
@@ -327,7 +327,7 @@ pub unsafe fn call_guest_top(f: usize, arg: usize) -> u32 {
     // the slot's address so `escape_to_top` can find it from any depth.
     let mut slot = 0usize;
     let prev = ESCAPE_SP.with(|s| s.replace(&mut slot as *mut usize as usize));
-    let code = anyexe_call_guest(f, arg, &mut slot);
+    let code = nle_call_guest(f, arg, &mut slot);
     ESCAPE_SP.with(|s| s.set(prev));
     code
 }
@@ -339,5 +339,5 @@ pub unsafe fn escape_to_top(code: u32) -> ! {
         libc::_exit(code as i32 & 0xff);
     }
     let saved = *(slot_addr as *const usize);
-    anyexe_escape(saved, code)
+    nle_escape(saved, code)
 }

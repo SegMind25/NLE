@@ -7,7 +7,7 @@ Date: 2026-10-18
 
 Method: clean-room. Only the public README and the public docs of the original were read, and only for the *idea* and for
 the *user-visible behaviour* (commands, outputs, limits). No code of the original was copied or adapted; the original
-is licensed GPL-2.0 and this project is MIT, so the two never share code. Every line of AnyEXE was written from the
+is licensed GPL-2.0 and this project is MIT, so the two never share code. Every line of NLE was written from the
 published Windows x64 ABI, the PE/COFF and ELF specifications and the documented behaviour of the Win32 API.
 
 ## Sources
@@ -31,12 +31,12 @@ native process, with the other system's library calls answered by a reimplementa
 
 | ID | screen | how to reach | purpose | key components | states seen |
 | --- | --- | --- | --- | --- | --- |
-| S01 | run | `anyexe app.exe [args]` / `anyexe run` | execute a program | backend choice, exit code pass-through | native, wine, refused, missing API |
-| S02 | inspect | `anyexe inspect app.exe` | report what the program needs and whether it can run | per-library counts, verdict, notes | native / partial / unsupported / not a PE |
-| S03 | relink | `anyexe relink app.exe -o dir` | produce a standalone native executable | ELF writer, runtime library copy, bundled DLLs | ok, unresolved imports, 32-bit rejected |
-| S04 | coverage | `anyexe coverage` | list the implemented library functions | per-library table, markdown / json | n/a |
-| S05 | doctor | `anyexe doctor` | check that the host can run native programs | address space, gs register, segments | all ok / failures |
-| S06 | binfmt | `anyexe binfmt install` | let the kernel start `.exe` files directly | binfmt_misc registration | registered / not registered / needs root |
+| S01 | run | `nle app.exe [args]` / `nle run` | execute a program | backend choice, exit code pass-through | native, wine, refused, missing API |
+| S02 | inspect | `nle inspect app.exe` | report what the program needs and whether it can run | per-library counts, verdict, notes | native / partial / unsupported / not a PE |
+| S03 | relink | `nle relink app.exe -o dir` | produce a standalone native executable | ELF writer, runtime library copy, bundled DLLs | ok, unresolved imports, 32-bit rejected |
+| S04 | coverage | `nle coverage` | list the implemented library functions | per-library table, markdown / json | n/a |
+| S05 | doctor | `nle doctor` | check that the host can run native programs | address space, gs register, segments | all ok / failures |
+| S06 | binfmt | `nle binfmt install` | let the kernel start `.exe` files directly | binfmt_misc registration | registered / not registered / needs root |
 
 ## Flows
 
@@ -52,7 +52,7 @@ F02 Ship a program as a native Linux file
     edge: program needs its DLLs (copied next to the output), program starts child processes (launcher copied)
 
 F03 Find out why a program does not work
-    S02 -> S04 (is the missing function known?) -> ANYEXE_TRACE=api S01
+    S02 -> S04 (is the missing function known?) -> NLE_TRACE=api S01
 ```
 
 ## Components

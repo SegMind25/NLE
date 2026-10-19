@@ -29,9 +29,9 @@ extern "C" fn trap_report(idx: u32, ret_addr: usize) -> ! {
         None => format!("0x{ret_addr:x}"),
     };
     unsafe { libc::fflush(std::ptr::null_mut()) };
-    eprintln!("anyexe: fatal: the program called a Windows API that is not implemented: {name}");
+    eprintln!("nle: fatal: the program called a Windows API that is not implemented: {name}");
     eprintln!("        called from {place}");
-    eprintln!("        `anyexe inspect <file>` lists everything missing; `--backend wine` runs it under Wine instead");
+    eprintln!("        `nle inspect <file>` lists everything missing; `--backend wine` runs it under Wine instead");
     unsafe { libc::_exit(70) }
 }
 
@@ -50,7 +50,7 @@ pub fn make_stubs(labels: &[String]) -> Vec<usize> {
     unsafe {
         let p = libc::mmap(std::ptr::null_mut(), size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0);
         if p == libc::MAP_FAILED {
-            eprintln!("anyexe: cannot allocate import stubs");
+            eprintln!("nle: cannot allocate import stubs");
             libc::_exit(70);
         }
         let target = trap_common as *const () as usize as u64;

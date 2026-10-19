@@ -1,4 +1,4 @@
-//! AnyEXE: run Windows executables as native Linux processes.
+//! NLE: run Windows executables as native Linux processes.
 //!
 //! No emulation and no separate runtime process: a PE image is mapped into the process,
 //! its imports are bound to Rust reimplementations of the Win32 and C runtime libraries
@@ -17,4 +17,5 @@ pub mod registry;
 pub mod relink;
 pub mod runtime;
 pub mod shim;
+pub mod ui;
 pub mod win;

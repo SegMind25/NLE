@@ -23,8 +23,14 @@ jobs:
       - name: Test (unit tests and real Windows programs, run and relinked)
         run: cargo test --release
       - name: Doctor
-        run: ./target/release/anyexe doctor
+        run: ./target/release/nle doctor
+      - name: Examples
+        run: |
+          examples/build.sh
+          ./target/release/nle examples/bin/sysinfo.exe
+          ./target/release/nle relink examples/bin/sysinfo.exe -o /tmp/sysinfo-linux
+          /tmp/sysinfo-linux/sysinfo
       - name: Coverage list is up to date
         run: |
-          ./target/release/anyexe coverage --markdown > /tmp/COVERAGE.md
+          ./target/release/nle coverage --markdown > /tmp/COVERAGE.md
           diff -u docs/COVERAGE.md /tmp/COVERAGE.md

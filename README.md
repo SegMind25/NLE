@@ -1,26 +1,44 @@
-# AnyEXE
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="NLE: Native Linux Exe" width="520">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/SegMind25/NLE/actions/workflows/ci.yml"><img src="https://github.com/SegMind25/NLE/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
+  <img src="https://img.shields.io/badge/written%20in-Rust-orange" alt="Rust">
+  <img src="https://img.shields.io/badge/runs%20on-x86--64%20Linux-informational" alt="x86-64 Linux">
+</p>
+
+# NLE: Native Linux Exe
 
 Run Windows `.exe` programs as **native Linux programs**. No emulator, no virtual machine, no Wine in the loop.
 
-AnyEXE loads the program's machine code straight into a Linux process and answers its Windows API calls with a Rust
+NLE loads the program's machine code straight into a Linux process and answers its Windows API calls with a Rust
 reimplementation of the Windows libraries. The CPU runs the program's own instructions at full speed. It can also
 **relink** an `.exe` into a standalone Linux ELF file that the kernel starts like any other program.
 
 ```console
-$ anyexe app.exe --its --args          # run it
-$ anyexe relink app.exe -o app-linux   # or convert it...
+$ nle app.exe --its --args             # run it
+$ nle relink app.exe -o app-linux      # or convert it...
 $ ./app-linux/app --its --args         # ...and run it as a Linux program
 ```
 
+<p align="center">
+  <img src="docs/screenshots/01-run.png" alt="nle sysinfo.exe: a Windows program printing system facts, registry values, file and thread results on Linux" width="760">
+</p>
+
 The idea of converting an executable into the host's native format, with the foreign system's library calls served by a
 linked-in reimplementation instead of an emulator, comes from [AnyPS5](https://github.com/boykopovar/AnyPS5), which does
-it for PlayStation 5 executables. AnyEXE applies the same idea to Windows x64 executables. It shares no code with it:
+it for PlayStation 5 executables. NLE applies the same idea to Windows x64 executables. It shares no code with it:
 that project is GPL-2.0, this one is MIT, and everything here was written from the public PE/COFF, ELF and Win32
 documentation.
 
 ## What to expect
 
-AnyEXE is a **compatibility layer for x86-64 Windows console programs**. It is honest about its limits:
+NLE is a **compatibility layer for x86-64 Windows console programs**. It is honest about its limits:
 
 | works today (tested on every commit) | does not work |
 | --- | --- |
@@ -32,55 +50,77 @@ AnyEXE is a **compatibility layer for x86-64 Windows console programs**. It is h
 | DLL loading (`LoadLibrary`, import DLLs next to the program, `DllMain`, TLS callbacks) | ARM64 hosts (x86-64 Linux only) |
 | Winsock sockets, `select`, name resolution | registry hive files, Windows services, COM objects |
 | the registry: a persistent hive under the prefix (shared with child processes), seeded with the usual Windows version keys | running as a sandbox: the program has your user's rights |
-| starting child processes (Windows children through `anyexe`, Linux programs directly) |  |
+| starting child processes (Windows children through `nle`, Linux programs directly) |  |
 | Unicode, UTF-8 code page, wide-character APIs |  |
 
 A program is not guaranteed to work because it appears in the left column; real programs use hundreds of APIs. Use
-`anyexe inspect` first: it tells you which of the program's imports are implemented and gives a verdict. Whatever is
+`nle inspect` first: it tells you which of the program's imports are implemented and gives a verdict. Whatever is
 missing is named when (and only when) the program actually calls it, and `--strict` refuses to start instead.
 
-When the verdict is *partial* and [Wine](https://www.winehq.org/) is installed, `anyexe run` hands the program to Wine
+When the verdict is *partial* and [Wine](https://www.winehq.org/) is installed, `nle run` hands the program to Wine
 (`--backend native` forces the native layer, `--backend wine` forces Wine).
+
+## See it work
+
+Every picture below is real output: [`tools/screenshots.py`](tools/screenshots.py) runs the commands in a terminal
+and draws what they print.
+
+| | |
+| --- | --- |
+| **Check a program first.** `nle inspect` lists the imports and says whether the program can run natively.<br><img src="docs/screenshots/02-inspect.png" alt="nle inspect"> | **Convert it.** `nle relink` writes a Linux ELF; `file` and `ldd` show an ordinary dynamically linked program.<br><img src="docs/screenshots/03-relink.png" alt="nle relink"> |
+| **Go and Rust programs** bring their own runtimes and run unchanged.<br><img src="docs/screenshots/04-go-and-rust.png" alt="Go and Rust programs"> | **Honest limits.** A GUI program is reported as partial and stops with a clear message.<br><img src="docs/screenshots/05-limits.png" alt="a program NLE cannot run"> |
+| **Real test programs**: threads, files, exceptions, DLLs, sockets, child processes, the registry.<br><img src="docs/screenshots/08-test-programs.png" alt="test programs"> | **Check your machine** with `nle doctor`, and list the 1,300+ implemented functions with `nle coverage`.<br><img src="docs/screenshots/06-doctor.png" alt="nle doctor"> |
+
+## Try it
+
+The programs in [`examples/`](examples) are built with MinGW-w64 (`apt install gcc-mingw-w64-x86-64`):
+
+```console
+$ examples/build.sh                    # hello.exe, sysinfo.exe, window.exe in examples/bin
+$ nle examples/bin/sysinfo.exe         # system facts, registry, files, threads
+$ nle relink examples/bin/sysinfo.exe -o dist && ./dist/sysinfo
+$ nle inspect examples/bin/window.exe  # a GUI program: shows what is not supported
+```
 
 ## Install
 
 ```console
 $ git clone https://github.com/SegMind25/NLE && cd NLE
 $ ./install.sh                         # builds in release mode, installs to ~/.local
-$ anyexe doctor                        # checks that this machine can run native programs
+$ nle doctor                        # checks that this machine can run native programs
 ```
 
 Requirements: Linux on x86-64 (any distribution, kernel 4.x or newer), a Rust toolchain 1.88 or newer to build.
 
-`install.sh` puts `anyexe` in `~/.local/bin` and `libanyexe.so` in `~/.local/lib/anyexe`. Set `PREFIX=/usr/local` (as
+`install.sh` puts `nle` in `~/.local/bin` and `libnle.so` in `~/.local/lib/nle`. Set `PREFIX=/usr/local` (as
 root) for a system-wide install.
 
 ## Commands
 
 | command | what it does |
 | --- | --- |
-| `anyexe app.exe [args]` / `anyexe run app.exe [args]` | run a program; its exit code is yours |
-| `anyexe inspect [--json] [-v] app.exe` | report format, imports per library, missing functions, verdict |
-| `anyexe relink app.exe [-o DIR] [--name NAME] [--keep-original] [--strict]` | write a standalone native ELF (plus `libanyexe.so` and the program's DLLs) |
-| `anyexe coverage [--markdown \| --json] [LIB]` | list the Windows functions that are implemented |
-| `anyexe doctor` | check address space, segment selectors, `/proc`, optional pieces |
-| `anyexe binfmt install \| remove \| status` | register `.exe` files with the kernel, so `./app.exe` just runs |
+| `nle app.exe [args]` / `nle run app.exe [args]` | run a program; its exit code is yours |
+| `nle inspect [--json] [-v] app.exe` | report format, imports per library, missing functions, verdict |
+| `nle relink app.exe [-o DIR] [--name NAME] [--keep-original] [--strict]` | write a standalone native ELF (plus `libnle.so` and the program's DLLs) |
+| `nle coverage [--markdown \| --json] [LIB]` | list the Windows functions that are implemented |
+| `nle doctor` | check address space, segment selectors, `/proc`, optional pieces |
+| `nle binfmt install \| remove \| status` | register `.exe` files with the kernel, so `./app.exe` just runs |
 
 Run options: `--backend auto\|native\|wine`, `--prefix DIR`, `--strict`, `-v`.
 
 ### The Windows environment
 
-* `C:\` is a directory (`~/.local/share/anyexe/prefix/drive_c`, or `$ANYEXE_PREFIX/drive_c`); `Z:\` is the Linux root.
+* `C:\` is a directory (`~/.local/share/nle/prefix/drive_c`, or `$NLE_PREFIX/drive_c`); `Z:\` is the Linux root.
   File names match case-insensitively, as on Windows.
 * The program sees its own Windows-style environment (`SystemRoot`, `TEMP`, `USERPROFILE`, ...) with your host variables added.
 * The program believes it runs on Windows 10 (x64), in the "en-US" locale, with UTF-8 as the code page.
-* `ANYEXE_TRACE=load,bind,api` (or `all`) logs what the loader and the API layer do.
+* `NLE_TRACE=load,bind,api` (or `all`) logs what the loader and the API layer do.
 
 ### Relinked programs
 
-`anyexe relink` writes an ELF file whose segments are the program's own sections at their original addresses. The kernel
-maps them, the dynamic linker brings in `libanyexe.so`, and the runtime adopts the image that is already in memory. The
-result runs without `anyexe` installed; keep `libanyexe.so` next to it (or pass `--rpath`). The original `.exe` is not
+`nle relink` writes an ELF file whose segments are the program's own sections at their original addresses. The kernel
+maps them, the dynamic linker brings in `libnle.so`, and the runtime adopts the image that is already in memory. The
+result runs without `nle` installed; keep `libnle.so` next to it (or pass `--rpath`). The original `.exe` is not
 needed. Programs that start their own `.exe` again, such as multi-process programs, keep working because that path opens
 the ELF.
 
@@ -95,23 +135,26 @@ the ELF.
    structured exceptions, unwound using the program's own `.pdata` tables.
 
 More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The list of implemented functions is in
-[docs/COVERAGE.md](docs/COVERAGE.md) (generated by `anyexe coverage --markdown`).
+[docs/COVERAGE.md](docs/COVERAGE.md) (generated by `nle coverage --markdown`).
 
 ## Build and test
 
 ```console
-$ cargo build --release                # target/release/anyexe and target/release/libanyexe.so
+$ cargo build --release                # target/release/nle and target/release/libnle.so
 $ cargo test --release                 # unit tests + real programs, see below
 ```
 
 The integration tests compile the programs in `tests/exe` (C and C++) with MinGW-w64, and `tests/lang` (Go and Rust) when
-those toolchains are present, then run each one twice: through `anyexe run` and as a relinked ELF. Without MinGW the
+those toolchains are present, then run each one twice: through `nle run` and as a relinked ELF. Without MinGW the
 program tests print a notice and pass; install `gcc-mingw-w64-x86-64` and `g++-mingw-w64-x86-64` to run them for real.
 
 ## Project layout
 
 ```
 src/            the library (loader, runtime, shims, relinker) and the CLI
+examples/       small Windows programs to try NLE with
+assets/         the logo (SVG and PNG) and the social preview image
+tools/          regenerates the screenshots and logo PNGs
 tests/exe/      Windows test programs in C / C++ (each prints ALL OK or one line per failed check)
 tests/lang/     Go and Rust test programs
 docs/           architecture, usage notes, coverage list

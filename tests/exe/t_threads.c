@@ -161,8 +161,8 @@ int main(void) {
     CHECK(dt >= 20 && dt < 1000);
     CloseHandle(timer);
 
-    HANDLE named1 = CreateEventA(NULL, TRUE, FALSE, "anyexe_test_event");
-    HANDLE named2 = CreateEventA(NULL, TRUE, FALSE, "anyexe_test_event");
+    HANDLE named1 = CreateEventA(NULL, TRUE, FALSE, "nle_test_event");
+    HANDLE named2 = CreateEventA(NULL, TRUE, FALSE, "nle_test_event");
     CHECK_EQ_INT(GetLastError(), ERROR_ALREADY_EXISTS);
     SetEvent(named1);
     CHECK_EQ_INT(WaitForSingleObject(named2, 0), WAIT_OBJECT_0);

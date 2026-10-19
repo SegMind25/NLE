@@ -16,12 +16,12 @@ jobs:
       - run: cargo build --release
       - name: Package
         run: |
-          name="anyexe-${GITHUB_REF_NAME}-linux-x86_64"
-          mkdir -p "$name/lib/anyexe" "$name/bin"
-          cp target/release/anyexe "$name/bin/"
-          cp target/release/libanyexe.so "$name/lib/anyexe/"
+          name="nle-${GITHUB_REF_NAME}-linux-x86_64"
+          mkdir -p "$name/lib/nle" "$name/bin"
+          cp target/release/nle "$name/bin/"
+          cp target/release/libnle.so "$name/lib/nle/"
           cp README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
       - uses: softprops/action-gh-release@v2
         with:
-          files: anyexe-*.tar.gz
+          files: nle-*.tar.gz

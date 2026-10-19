@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>NLE social preview</title>
+<style>
+  html, body { margin: 0; }
+  body {
+    width: 1280px; height: 640px; position: relative; overflow: hidden;
+    font-family: "Inter", "Segoe UI", "DejaVu Sans", Arial, sans-serif;
+    background:
+      radial-gradient(900px 500px at 12% 8%, rgba(56,189,248,.20), transparent 60%),
+      radial-gradient(700px 500px at 95% 100%, rgba(52,211,153,.16), transparent 60%),
+      #070B16;
+    color: #EAF2FF;
+  }
+  .dots { position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(143,180,255,.13) 1.5px, transparent 1.6px);
+    background-size: 32px 32px; }
+  .mark { position: absolute; left: 96px; top: 150px; width: 340px; height: 340px; }
+  .word { position: absolute; left: 500px; top: 120px; width: 640px; }
+  .tag { position: absolute; left: 506px; top: 372px; font-size: 30px; font-weight: 600;
+    letter-spacing: .32em; color: #9FB0CF; }
+  .desc { position: absolute; left: 506px; top: 424px; font-size: 31px; line-height: 1.42; color: #D5E1F7; }
+  .desc b { color: #34D399; font-weight: 600; }
+  .term { position: absolute; left: 506px; top: 574px; font: 26px/1 "DejaVu Sans Mono", "Liberation Mono", monospace; color: #7C8DB0; }
+  .term .p { color: #34D399; } .term .c { color: #EAF2FF; }
+</style>
+<div class="dots"></div>
+<img class="mark" src="../assets/logo-mark.svg" alt="">
+<svg class="word" viewBox="0 0 740 240" xmlns="http://www.w3.org/2000/svg" fill="#EAF2FF">
+  <path d="M0 240V0h50l140 162V0h50v240h-50L50 78v162z"/>
+  <path transform="translate(274 0)" d="M0 0h50v190h120v50H0z"/>
+  <path transform="translate(478 0)" d="M0 0h170v50H50v45h110v50H50v45h120v50H0z"/>
+  <rect x="668" y="206" width="56" height="34" rx="5" fill="#34D399"/>
+</svg>
+<div class="tag">NATIVE LINUX EXE</div>
+<div class="desc">Run Windows <b>.exe</b> programs<br>as native Linux programs.<br>No emulator. No virtual machine.</div>
+<div class="term"><span class="p">$</span> <span class="c">nle relink app.exe -o app-linux</span></div>

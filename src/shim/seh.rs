@@ -522,7 +522,7 @@ unsafe fn dispatch_inner(rec: *mut EXCEPTION_RECORD, ctx: *mut CONTEXT) -> Dispa
         let u = virtual_unwind(UNW_FLAG_EHANDLER, image, pc, func, &mut next);
         if crate::runtime::cfg().trace.api {
             eprintln!(
-                "anyexe[seh]: search pc={} func=[{:#x},{:#x}) frame={:#x} handler={} -> ret={}",
+                "nle[seh]: search pc={} func=[{:#x},{:#x}) frame={:#x} handler={} -> ret={}",
                 describe_address(pc as usize),
                 (*func).begin,
                 (*func).end,
@@ -552,7 +552,7 @@ unsafe fn dispatch_inner(rec: *mut EXCEPTION_RECORD, ctx: *mut CONTEXT) -> Dispa
             let disp = h(rec, u.frame, ctx, &mut dc);
             truncate_inflight(depth);
             if crate::runtime::cfg().trace.api {
-                eprintln!("anyexe[seh]:   handler returned {disp} (code {:#x}, flags {:#x})", (*rec).code, (*rec).flags);
+                eprintln!("nle[seh]:   handler returned {disp} (code {:#x}, flags {:#x})", (*rec).code, (*rec).flags);
             }
             match disp {
                 DISP_CONTINUE_EXECUTION => {
@@ -620,7 +620,7 @@ unsafe fn unhandled(rec: *mut EXCEPTION_RECORD, ctx: *mut CONTEXT) {
     }
     libc::fflush(std::ptr::null_mut());
     let code = (*rec).code;
-    eprintln!("anyexe: unhandled exception 0x{:08X} at {}", code, describe_address((*ctx).rip as usize));
+    eprintln!("nle: unhandled exception 0x{:08X} at {}", code, describe_address((*ctx).rip as usize));
     if (*ctx).rip < 0x10000 && (*ctx).rsp != 0 {
         let ret = *((*ctx).rsp as *const usize);
         eprintln!("        jumped to a null pointer; the caller is {}", describe_address(ret));
@@ -665,7 +665,7 @@ unsafe fn unwind_ex(target_frame: u64, target_ip: u64, rec: *mut EXCEPTION_RECOR
     let dispatch = innermost_dispatch();
     if crate::runtime::cfg().trace.api {
         eprintln!(
-            "anyexe[seh]: RtlUnwindEx target_frame={target_frame:#x} target_ip={} dispatch={}",
+            "nle[seh]: RtlUnwindEx target_frame={target_frame:#x} target_ip={} dispatch={}",
             describe_address(target_ip as usize),
             dispatch.is_some()
         );
@@ -704,7 +704,7 @@ unsafe fn unwind_ex(target_frame: u64, target_ip: u64, rec: *mut EXCEPTION_RECOR
         let u = virtual_unwind(UNW_FLAG_UHANDLER, image, pc, func, &mut next);
         if crate::runtime::cfg().trace.api {
             eprintln!(
-                "anyexe[seh]:   unwind pc={} frame={:#x} handler={}",
+                "nle[seh]:   unwind pc={} frame={:#x} handler={}",
                 describe_address(pc as usize),
                 u.frame,
                 if u.handler != 0 { describe_address(u.handler) } else { "-".into() }
@@ -1141,7 +1141,7 @@ crate::shims! { "ntdll" => NT_SHIMS;
     fn RaiseFailFastException(rec: *mut EXCEPTION_RECORD, _ctx: *mut CONTEXT, _flags: DWORD) {
         libc::fflush(std::ptr::null_mut());
         let code = if rec.is_null() { 0xc000_0409 } else { (*rec).code };
-        eprintln!("anyexe: fast fail 0x{code:08X}");
+        eprintln!("nle: fast fail 0x{code:08X}");
         libc::_exit(3)
     }
     fn RtlRaiseStatus(status: u32) -> ! {

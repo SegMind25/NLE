@@ -4,7 +4,7 @@
 //! placed at the image's original base address with the right protections. The Linux kernel maps
 //! them directly; there is no PE parsing for the code and data. A small generated segment holds the
 //! program headers, the dynamic section and an entry stub which calls `__libc_start_main` with
-//! `anyexe_relinked_main` from `libanyexe.so`. That function adopts the already-mapped image, binds its
+//! `nle_relinked_main` from `libnle.so`. That function adopts the already-mapped image, binds its
 //! imports to the reimplemented Windows libraries and starts it.
 
 use crate::pe::{self, Layout, Pe, PeError};
@@ -22,7 +22,7 @@ const PF_X: u32 = 1;
 const PF_W: u32 = 2;
 const PF_R: u32 = 4;
 
-pub const NOTE_NAME: &[u8] = b"ANYEXE\0";
+pub const NOTE_NAME: &[u8] = b"NLE\0";
 pub const NOTE_TYPE: u32 = 0x4e4c_4501;
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ impl From<PeError> for RelinkError {
 }
 
 pub struct Options {
-    /// `DT_RUNPATH` entry for finding `libanyexe.so`.
+    /// `DT_RUNPATH` entry for finding `libnle.so`.
     pub runpath: String,
     /// Name of the original program, recorded so the runtime can present it as `GetModuleFileName(NULL)`.
     pub original_name: String,
@@ -161,10 +161,10 @@ pub fn build(pe: &Pe, pe_bytes: &[u8], interp: &str, opts: &Options) -> Result<V
         dynstr.push(0);
         off
     };
-    let s_runtime = add_str("libanyexe.so");
+    let s_runtime = add_str("libnle.so");
     let s_libc = add_str("libc.so.6");
     let s_runpath = add_str(&opts.runpath);
-    let s_main = add_str("anyexe_relinked_main");
+    let s_main = add_str("nle_relinked_main");
     let s_start = add_str("__libc_start_main");
 
     cur = align_up(cur as u64, 8) as usize;
@@ -212,7 +212,7 @@ pub fn build(pe: &Pe, pe_bytes: &[u8], interp: &str, opts: &Options) -> Result<V
     put32(&mut meta_ro, hash_off, 1);
     put32(&mut meta_ro, hash_off + 4, nsyms as u32);
 
-    // symbols: [0] null, [1] anyexe_relinked_main, [2] __libc_start_main (both undefined functions)
+    // symbols: [0] null, [1] nle_relinked_main, [2] __libc_start_main (both undefined functions)
     for (i, name) in [(1usize, s_main), (2, s_start)] {
         let at = dynsym_off + i * 24;
         put32(&mut meta_ro, at, name);

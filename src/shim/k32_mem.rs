@@ -566,7 +566,7 @@ unsafe fn create_mapping(file: HANDLE, protect: DWORD, size: u64, name: Option<S
             set_last_error(ERROR_INVALID_PARAMETER);
             return 0;
         }
-        let fd = libc::memfd_create(b"anyexe-map\0".as_ptr() as *const libc::c_char, 0);
+        let fd = libc::memfd_create(b"nle-map\0".as_ptr() as *const libc::c_char, 0);
         if fd < 0 || libc::ftruncate(fd, size as libc::off_t) != 0 {
             set_last_error(ERROR_NOT_ENOUGH_MEMORY);
             return 0;

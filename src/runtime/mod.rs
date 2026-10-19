@@ -42,10 +42,10 @@ static INHERITED_PATH: OnceLock<Option<String>> = OnceLock::new();
 
 pub fn init(cfg: Config) {
     // Taken out of the host environment so that unrelated children never see stale values.
-    let _ = INHERITED_CMDLINE.set(std::env::var("ANYEXE_CMDLINE").ok());
-    let _ = INHERITED_PATH.set(std::env::var("ANYEXE_WINPATH").ok());
-    std::env::remove_var("ANYEXE_CMDLINE");
-    std::env::remove_var("ANYEXE_WINPATH");
+    let _ = INHERITED_CMDLINE.set(std::env::var("NLE_CMDLINE").ok());
+    let _ = INHERITED_PATH.set(std::env::var("NLE_WINPATH").ok());
+    std::env::remove_var("NLE_CMDLINE");
+    std::env::remove_var("NLE_WINPATH");
     let _ = CONFIG.set(cfg);
 }
 
@@ -55,7 +55,7 @@ pub fn cfg() -> &'static Config {
 
 pub fn trace_from_env() -> Trace {
     let mut t = Trace::default();
-    if let Ok(v) = std::env::var("ANYEXE_TRACE") {
+    if let Ok(v) = std::env::var("NLE_TRACE") {
         for item in v.split(',') {
             match item.trim() {
                 "load" => t.load = true,
@@ -75,12 +75,12 @@ pub fn trace_from_env() -> Trace {
 
 #[macro_export]
 macro_rules! trace_load {
-    ($($arg:tt)*) => { if $crate::runtime::cfg().trace.load { eprintln!("anyexe[load]: {}", format_args!($($arg)*)); } };
+    ($($arg:tt)*) => { if $crate::runtime::cfg().trace.load { eprintln!("nle[load]: {}", format_args!($($arg)*)); } };
 }
 
 #[macro_export]
 macro_rules! trace_bind {
-    ($($arg:tt)*) => { if $crate::runtime::cfg().trace.bind { eprintln!("anyexe[bind]: {}", format_args!($($arg)*)); } };
+    ($($arg:tt)*) => { if $crate::runtime::cfg().trace.bind { eprintln!("nle[bind]: {}", format_args!($($arg)*)); } };
 }
 
 /// The environment block as the Windows program sees it (separate from the host's).
@@ -112,7 +112,7 @@ pub fn init_env() {
     let user = user_name();
     let mut env: Vec<(String, String)> = Vec::new();
     for (k, v) in std::env::vars() {
-        if k == "PATH" || k.starts_with("ANYEXE_") || k.contains('=') || k.is_empty() {
+        if k == "PATH" || k.starts_with("NLE_") || k.contains('=') || k.is_empty() {
             continue;
         }
         env.push((k, v));

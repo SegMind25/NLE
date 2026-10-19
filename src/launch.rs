@@ -50,13 +50,13 @@ pub fn run_native(exe: &Path, args: Vec<String>, opts: &RunOptions) -> LoadError
     }
 }
 
-/// Entry point of executables produced by `anyexe relink`. The ELF's entry stub hands control to
+/// Entry point of executables produced by `nle relink`. The ELF's entry stub hands control to
 /// `__libc_start_main`, which calls this as `main`. The kernel has already mapped the PE image.
 #[no_mangle]
-pub unsafe extern "C" fn anyexe_relinked_main(argc: i32, argv: *const *const libc::c_char, _envp: *const *const libc::c_char) -> i32 {
+pub unsafe extern "C" fn nle_relinked_main(argc: i32, argv: *const *const libc::c_char, _envp: *const *const libc::c_char) -> i32 {
     use std::ffi::CStr;
     let Some((base, _size, name)) = crate::relink::find_note() else {
-        eprintln!("anyexe: this file was not produced by `anyexe relink`");
+        eprintln!("nle: this file was not produced by `nle relink`");
         return 127;
     };
     let args: Vec<String> = (1..argc.max(0) as usize).map(|i| CStr::from_ptr(*argv.add(i)).to_string_lossy().into_owned()).collect();
@@ -65,13 +65,13 @@ pub unsafe extern "C" fn anyexe_relinked_main(argc: i32, argv: *const *const lib
     let opts = RunOptions::default();
     let alias = (exe_host.symlink_metadata().is_err()).then(|| elf.clone());
     if let Err(e) = setup(exe_host.clone(), args, &opts, alias) {
-        eprintln!("anyexe: {e}");
+        eprintln!("nle: {e}");
         return 126;
     }
     match loader::attach_mapped(base as usize, &exe_host) {
         Ok((main, init)) => loader::run_main(main, init),
         Err(e) => {
-            eprintln!("anyexe: {}: {e}", exe_host.display());
+            eprintln!("nle: {}: {e}", exe_host.display());
             126
         }
     }

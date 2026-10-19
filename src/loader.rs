@@ -3,7 +3,7 @@
 //!
 //! The same binder serves two entry paths: [`load_main`] maps a `.exe` itself, while
 //! [`attach_mapped`] adopts an image the Linux kernel already mapped (executables produced by
-//! `anyexe relink`).
+//! `nle relink`).
 
 use crate::pe::{self, Import, ImportName, Layout, Pe, PeError};
 use crate::registry;
@@ -596,7 +596,7 @@ fn maybe_start_kuser(mods: &[Arc<Module>]) {
     if STARTED.load(Ordering::SeqCst) {
         return;
     }
-    let forced = std::env::var("ANYEXE_KUSER").ok();
+    let forced = std::env::var("NLE_KUSER").ok();
     let wanted = match forced.as_deref() {
         Some("0") | Some("never") => false,
         Some("1") | Some("always") => true,
@@ -699,7 +699,7 @@ pub unsafe fn exit_process(code: u32) -> ! {
 /// Sets up the process-wide state, runs initializers and calls the program's entry point.
 pub unsafe fn run_main(main: Arc<Module>, init: Vec<Arc<Module>>) -> ! {
     if main.entry == 0 {
-        eprintln!("anyexe: {} has no entry point", main.name);
+        eprintln!("nle: {} has no entry point", main.name);
         libc::_exit(1);
     }
     teb::init_peb(main.base);

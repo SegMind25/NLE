@@ -88,7 +88,7 @@ pub unsafe fn host_file(p: usize) -> *mut libc::FILE {
     }
     if p == 0 || *((p + MSFILE_MAGIC_OFFSET) as *const u64) != MSFILE_MAGIC {
         libc::fflush(std::ptr::null_mut());
-        eprintln!("anyexe: invalid FILE* passed to the C runtime (0x{p:x})");
+        eprintln!("nle: invalid FILE* passed to the C runtime (0x{p:x})");
         libc::_exit(3);
     }
     *((p + MSFILE_HOST_OFFSET) as *const usize) as *mut libc::FILE

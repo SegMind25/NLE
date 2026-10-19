@@ -1,6 +1,6 @@
 //! kernel32: `CreateProcess`, `WinExec`, Toolhelp snapshots and process attribute lists.
 //!
-//! A Windows child (`MZ`) is started by running the `anyexe` launcher on it; Linux binaries and
+//! A Windows child (`MZ`) is started by running the `nle` launcher on it; Linux binaries and
 //! scripts are started directly.
 
 use crate::loader;
@@ -25,18 +25,18 @@ const TH32CS_SNAPPROCESS: DWORD = 0x2;
 const TH32CS_SNAPMODULE: DWORD = 0x8;
 const TH32CS_SNAPMODULE32: DWORD = 0x10;
 
-/// Finds the `anyexe` launcher used to start Windows children.
+/// Finds the `nle` launcher used to start Windows children.
 fn launcher() -> Option<PathBuf> {
     static L: OnceLock<Option<PathBuf>> = OnceLock::new();
     L.get_or_init(|| {
-        if let Some(p) = std::env::var_os("ANYEXE_BIN") {
+        if let Some(p) = std::env::var_os("NLE_BIN") {
             let p = PathBuf::from(p);
             if p.is_file() {
                 return Some(p);
             }
         }
         if let Ok(me) = std::fs::read_link("/proc/self/exe") {
-            if me.file_name().is_some_and(|n| n == "anyexe") {
+            if me.file_name().is_some_and(|n| n == "nle") {
                 return Some(me);
             }
         }
@@ -44,7 +44,7 @@ fn launcher() -> Option<PathBuf> {
         if unsafe { libc::dladdr(launcher as *const () as *const libc::c_void, &mut info) } != 0 && !info.dli_fname.is_null() {
             let lib = PathBuf::from(unsafe { CStr::from_ptr(info.dli_fname) }.to_string_lossy().into_owned());
             if let Some(dir) = lib.parent() {
-                for cand in [dir.join("anyexe"), dir.join("../bin/anyexe")] {
+                for cand in [dir.join("nle"), dir.join("../bin/nle")] {
                     if cand.is_file() {
                         return Some(cand);
                     }
@@ -52,7 +52,7 @@ fn launcher() -> Option<PathBuf> {
             }
         }
         let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path).map(|d| d.join("anyexe")).find(|c| c.is_file())
+        std::env::split_paths(&path).map(|d| d.join("nle")).find(|c| c.is_file())
     })
     .clone()
 }
@@ -218,7 +218,7 @@ unsafe fn spawn(req: Request) -> BOOL {
     let mut cmd = match kind {
         ProgramKind::Windows => {
             let Some(bin) = launcher() else {
-                eprintln!("anyexe: cannot start {}: the `anyexe` launcher was not found (set ANYEXE_BIN)", target.display());
+                eprintln!("nle: cannot start {}: the `nle` launcher was not found (set NLE_BIN)", target.display());
                 set_last_error(ERROR_FILE_NOT_FOUND);
                 return FALSE;
             };
@@ -237,23 +237,23 @@ unsafe fn spawn(req: Request) -> BOOL {
     // block, or ours.
     let win_env: Vec<(String, String)> = req.env.clone().unwrap_or_else(|| runtime::ENV.lock().unwrap().clone());
     cmd.env_clear();
-    cmd.env("ANYEXE_CMDLINE", &req.cmdline);
+    cmd.env("NLE_CMDLINE", &req.cmdline);
     if let Some(p) = std::env::var_os("PATH") {
         cmd.env("PATH", p);
     }
     for (k, v) in &win_env {
         if k.eq_ignore_ascii_case("PATH") {
-            cmd.env("ANYEXE_WINPATH", v);
+            cmd.env("NLE_WINPATH", v);
         } else {
             cmd.env(k, v);
         }
     }
     for (k, v) in std::env::vars() {
-        if k.starts_with("ANYEXE_") && k != "ANYEXE_CMDLINE" && k != "ANYEXE_WINPATH" {
+        if k.starts_with("NLE_") && k != "NLE_CMDLINE" && k != "NLE_WINPATH" {
             cmd.env(k, v);
         }
     }
-    cmd.env("ANYEXE_PREFIX", paths::prefix());
+    cmd.env("NLE_PREFIX", paths::prefix());
     if let Some(dir) = &req.cwd {
         cmd.current_dir(paths::resolve(dir));
     }

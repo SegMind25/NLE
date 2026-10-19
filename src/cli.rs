@@ -10,16 +10,16 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-AnyEXE: run Windows .exe files as native Linux programs (no emulation).
+NLE: run Windows .exe files as native Linux programs (no emulation).
 
 usage:
-  anyexe [run] [options] <app.exe> [args...]   run a Windows program
-  anyexe inspect [--json] [-v] <app.exe>       compatibility report
-  anyexe relink <app.exe> [-o DIR] [options]   convert to a native Linux ELF
-  anyexe coverage [--markdown|--json] [LIB]    list the implemented Windows APIs
-  anyexe doctor                                check this system
-  anyexe binfmt [status|install|remove]        let the kernel run .exe files directly
-  anyexe --version | --help
+  nle [run] [options] <app.exe> [args...]   run a Windows program
+  nle inspect [--json] [-v] <app.exe>       compatibility report
+  nle relink <app.exe> [-o DIR] [options]   convert to a native Linux ELF
+  nle coverage [--markdown|--json] [LIB]    list the implemented Windows APIs
+  nle doctor                                check this system
+  nle binfmt [status|install|remove]        let the kernel run .exe files directly
+  nle --version | --help
 
 run options:
   --backend auto|native|wine   auto (default) uses the native layer, or Wine when the
@@ -32,13 +32,13 @@ relink options:
   -o DIR                 output directory (default: <name>-linux)
   --name NAME            name of the produced executable (default: the exe's stem)
   --keep-original        also copy the original .exe next to the result
-  --no-copy-runtime      do not copy libanyexe.so (use --rpath to point at it)
-  --rpath DIR            DT_RUNPATH for libanyexe.so (default: $ORIGIN)
+  --no-copy-runtime      do not copy libnle.so (use --rpath to point at it)
+  --rpath DIR            DT_RUNPATH for libnle.so (default: $ORIGIN)
   --strict               fail if any import is unimplemented
 
 environment:
-  ANYEXE_PREFIX   emulated Windows directory tree     ANYEXE_WINE   path to wine
-  ANYEXE_TRACE    comma list of: load, bind, api, all (debug logging)
+  NLE_PREFIX   emulated Windows directory tree     NLE_WINE   path to wine
+  NLE_TRACE    comma list of: load, bind, api, all (debug logging)
 ";
 
 fn load_pe(path: &str) -> Result<Vec<u8>, String> {
@@ -57,7 +57,7 @@ pub fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "-V" | "--version" | "version" => {
-            println!("anyexe {}", env!("CARGO_PKG_VERSION"));
+            println!("nle {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         "run" => cmd_run(&args[1..]),
@@ -81,7 +81,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
             "-v" | "--verbose" => verbose = true,
             "--backend" if rest.len() > 1 => {
                 let Some(b) = Backend::parse(&rest[1]) else {
-                    eprintln!("anyexe: unknown backend `{}` (use auto, native or wine)", rest[1]);
+                    eprintln!("nle: unknown backend `{}` (use auto, native or wine)", rest[1]);
                     return ExitCode::from(2);
                 };
                 backend = b;
@@ -103,14 +103,14 @@ fn cmd_run(args: &[String]) -> ExitCode {
     let bytes = match load_pe(exe) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("anyexe: {e}");
+            eprintln!("nle: {e}");
             return ExitCode::from(127);
         }
     };
     let pe = match Pe::parse(&bytes, Layout::File) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("anyexe: {exe}: {e}");
+            eprintln!("nle: {exe}: {e}");
             return ExitCode::from(126);
         }
     };
@@ -123,7 +123,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
     match chosen {
         Choice::Refuse(why) => {
-            eprintln!("anyexe: {exe}: {why}");
+            eprintln!("nle: {exe}: {why}");
             for n in &report.notes {
                 eprintln!("  note: {n}");
             }
@@ -131,31 +131,31 @@ fn cmd_run(args: &[String]) -> ExitCode {
         }
         Choice::Wine(why) => {
             let Some(w) = wine else {
-                eprintln!("anyexe: Wine was requested but is not installed (set ANYEXE_WINE to its path)");
+                eprintln!("nle: Wine was requested but is not installed (set NLE_WINE to its path)");
                 return ExitCode::from(127);
             };
             if verbose || backend == Backend::Auto {
-                eprintln!("anyexe: {why}");
+                eprintln!("nle: {why}");
             }
             let e = backend::exec_wine(&w, Path::new(exe), &prog_args, opts.prefix.as_deref());
-            eprintln!("anyexe: cannot start {}: {e}", w.display());
+            eprintln!("nle: cannot start {}: {e}", w.display());
             ExitCode::from(127)
         }
         Choice::Native | Choice::NativeWithWarning(_) => {
             if let Choice::NativeWithWarning(w) = chosen {
-                eprintln!("anyexe: warning: {w}");
+                eprintln!("nle: warning: {w}");
             } else if verbose {
-                eprintln!("anyexe: running natively ({} imports implemented)", report.imports.len());
+                eprintln!("nle: running natively ({} imports implemented)", report.imports.len());
             }
             if report.verdict == Verdict::Unsupported && backend == Backend::Native {
-                eprintln!("anyexe: warning: this executable is outside what the native layer supports");
+                eprintln!("nle: warning: this executable is outside what the native layer supports");
                 for n in &report.notes {
                     eprintln!("  note: {n}");
                 }
             }
             drop(bytes);
             let err = launch::run_native(Path::new(exe), prog_args, &opts);
-            eprintln!("anyexe: {exe}: {err}");
+            eprintln!("nle: {exe}: {err}");
             ExitCode::from(126)
         }
     }
@@ -177,14 +177,14 @@ fn cmd_inspect(args: &[String]) -> ExitCode {
     let bytes = match load_pe(&path) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("anyexe: {e}");
+            eprintln!("nle: {e}");
             return ExitCode::from(1);
         }
     };
     let pe = match Pe::parse(&bytes, Layout::File) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("anyexe: {path}: {e}");
+            eprintln!("nle: {path}: {e}");
             return ExitCode::from(1);
         }
     };
@@ -197,9 +197,9 @@ fn cmd_inspect(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Locates `libanyexe.so` for the relinker.
+/// Locates `libnle.so` for the relinker.
 pub fn runtime_lib() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("ANYEXE_LIB") {
+    if let Some(p) = std::env::var_os("NLE_LIB") {
         let p = PathBuf::from(p);
         if p.is_file() {
             return Some(p);
@@ -207,7 +207,7 @@ pub fn runtime_lib() -> Option<PathBuf> {
     }
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    [dir.join("libanyexe.so"), dir.join("../lib/anyexe/libanyexe.so"), dir.join("../lib/libanyexe.so")]
+    [dir.join("libnle.so"), dir.join("../lib/nle/libnle.so"), dir.join("../lib/libnle.so")]
         .into_iter()
         .find(|p| p.is_file())
 }
@@ -235,7 +235,7 @@ fn cmd_relink(args: &[String]) -> ExitCode {
             "--strict" => strict = true,
             p if !p.starts_with('-') => input = Some(p.to_string()),
             other => {
-                eprintln!("anyexe: unknown option `{other}`");
+                eprintln!("nle: unknown option `{other}`");
                 return ExitCode::from(2);
             }
         }
@@ -248,21 +248,21 @@ fn cmd_relink(args: &[String]) -> ExitCode {
     let bytes = match load_pe(&input) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("anyexe: {e}");
+            eprintln!("nle: {e}");
             return ExitCode::from(1);
         }
     };
     let pe = match relink::parse_for_relink(&bytes) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("anyexe: {input}: {e}");
+            eprintln!("nle: {input}: {e}");
             return ExitCode::from(1);
         }
     };
     let report = analyze::analyze(&pe, Some(Path::new(&input)));
     let unresolved = report.unresolved();
     if strict && !unresolved.is_empty() {
-        eprintln!("anyexe: {} imports are not implemented:", unresolved.len());
+        eprintln!("nle: {} imports are not implemented:", unresolved.len());
         for u in unresolved.iter().take(20) {
             eprintln!("  {}!{}", u.dll, u.name);
         }
@@ -278,61 +278,61 @@ fn cmd_relink(args: &[String]) -> ExitCode {
     let elf = match relink::build(&pe, &bytes, &interp, &relink::Options { runpath: rpath.clone(), original_name: original.clone() }) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("anyexe: {input}: {e}");
+            eprintln!("nle: {input}: {e}");
             return ExitCode::from(1);
         }
     };
     if let Err(e) = std::fs::create_dir_all(&out_dir) {
-        eprintln!("anyexe: {}: {e}", out_dir.display());
+        eprintln!("nle: {}: {e}", out_dir.display());
         return ExitCode::from(1);
     }
     let target = out_dir.join(&exe_name);
     if let Err(e) = write_executable(&target, &elf) {
-        eprintln!("anyexe: {}: {e}", target.display());
+        eprintln!("nle: {}: {e}", target.display());
         return ExitCode::from(1);
     }
-    println!("created   {}  ({} KiB native ELF)", target.display(), elf.len() / 1024);
+    println!("{} {}  ({} KiB native ELF)", crate::ui::green("created  "), target.display(), elf.len() / 1024);
     if copy_rt {
         match runtime_lib() {
             Some(lib) => {
-                let dst = out_dir.join("libanyexe.so");
+                let dst = out_dir.join("libnle.so");
                 match std::fs::copy(&lib, &dst) {
-                    Ok(_) => println!("copied    {}", dst.display()),
-                    Err(e) => eprintln!("anyexe: cannot copy runtime library: {e}"),
+                    Ok(_) => println!("{} {}", crate::ui::cyan("copied   "), dst.display()),
+                    Err(e) => eprintln!("nle: cannot copy runtime library: {e}"),
                 }
             }
-            None => eprintln!("anyexe: warning: libanyexe.so not found next to the anyexe binary; set ANYEXE_LIB or pass --rpath"),
+            None => eprintln!("nle: warning: libnle.so not found next to the nle binary; set NLE_LIB or pass --rpath"),
         }
     }
     let spawns = report.imports.iter().any(|i| matches!(i.name.as_str(), "CreateProcessA" | "CreateProcessW" | "WinExec" | "ShellExecuteW" | "ShellExecuteExW"));
     if spawns && copy_rt && !self_exe.as_os_str().is_empty() {
-        // Windows children are started through the launcher, which is searched for next to libanyexe.so.
-        let dst = out_dir.join("anyexe");
+        // Windows children are started through the launcher, which is searched for next to libnle.so.
+        let dst = out_dir.join("nle");
         match std::fs::copy(&self_exe, &dst) {
-            Ok(_) => println!("copied    {}  (starts Windows child processes)", dst.display()),
-            Err(e) => eprintln!("anyexe: cannot copy the launcher: {e}"),
+            Ok(_) => println!("{} {}  (starts Windows child processes)", crate::ui::cyan("copied   "), dst.display()),
+            Err(e) => eprintln!("nle: cannot copy the launcher: {e}"),
         }
     }
     for dll in &report.bundled {
         if let Some(n) = dll.file_name() {
             let dst = out_dir.join(n);
             if std::fs::copy(dll, &dst).is_ok() {
-                println!("copied    {}", dst.display());
+                println!("{} {}", crate::ui::cyan("copied   "), dst.display());
             }
         }
     }
     if keep {
         let dst = out_dir.join(&original);
         if std::fs::copy(in_path, &dst).is_ok() {
-            println!("copied    {}", dst.display());
+            println!("{} {}", crate::ui::cyan("copied   "), dst.display());
         }
     }
     let total = report.imports.len();
-    println!("imports   {} of {} implemented natively", total - unresolved.len(), total);
+    println!("{} {} of {} implemented natively", crate::ui::dim("imports  "), total - unresolved.len(), total);
     if !unresolved.is_empty() {
-        println!("          {} missing (the program stops with a clear message if it calls one); see `anyexe inspect`", unresolved.len());
+        println!("          {} missing (the program stops with a clear message if it calls one); see `nle inspect`", unresolved.len());
     }
-    println!("run it    {}", target.display());
+    println!("{} {}", crate::ui::bold("run it   "), target.display());
     ExitCode::SUCCESS
 }
 
@@ -368,7 +368,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
     }
     if markdown {
         println!("# Implemented Windows APIs\n");
-        println!("Generated by `anyexe coverage --markdown`. {} functions in {} libraries.\n", all.len(), families.len());
+        println!("Generated by `nle coverage --markdown`. {} functions in {} libraries.\n", all.len(), families.len());
         println!("| library | functions |\n| --- | ---: |");
         for (f, names) in &families {
             println!("| {f} | {} |", names.len());
@@ -389,7 +389,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                     }
                 }
                 None => {
-                    eprintln!("anyexe: no library named `{lib}`");
+                    eprintln!("nle: no library named `{lib}`");
                     return ExitCode::from(1);
                 }
             }
@@ -411,17 +411,17 @@ fn report_line(mark: &str, label: &str, detail: &str) {
 
 /// A required capability: `!!` when it is missing.
 fn check(ok: bool, label: &str, detail: &str) -> bool {
-    report_line(if ok { "ok" } else { "!!" }, label, detail);
+    report_line(&if ok { crate::ui::green("ok") } else { crate::ui::red("!!") }, label, detail);
     ok
 }
 
 /// An optional capability: `--` when it is missing.
 fn optional(ok: bool, label: &str, detail: &str) {
-    report_line(if ok { "ok" } else { "--" }, label, detail);
+    report_line(&if ok { crate::ui::green("ok") } else { crate::ui::dim("--") }, label, detail);
 }
 
 fn cmd_doctor() -> ExitCode {
-    println!("AnyEXE {} on {}", env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
+    println!("NLE {} on {}", env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
     let mut all_ok = true;
     all_ok &= check(cfg!(target_arch = "x86_64"), "x86-64 CPU", "Windows x64 code runs natively, so the host must be x86-64");
     unsafe {
@@ -458,10 +458,10 @@ fn cmd_doctor() -> ExitCode {
     all_ok &= check(writable, "Windows prefix directory", &prefix.display().to_string());
     match runtime_lib() {
         Some(p) => {
-            optional(true, "libanyexe.so (needed by `relink`)", &p.display().to_string());
+            optional(true, "libnle.so (needed by `relink`)", &p.display().to_string());
         }
         None => {
-            optional(false, "libanyexe.so (needed by `relink`)", "not found next to the anyexe binary");
+            optional(false, "libnle.so (needed by `relink`)", "not found next to the nle binary");
         }
     }
     match backend::find_wine() {
@@ -472,27 +472,27 @@ fn cmd_doctor() -> ExitCode {
             optional(false, "Wine fallback", "not installed; only matters for programs the native layer cannot run");
         }
     }
-    let bf = std::fs::read_to_string("/proc/sys/fs/binfmt_misc/anyexe").is_ok();
-    optional(bf, "binfmt_misc handler for .exe", if bf { "registered" } else { "not registered (optional, see `anyexe binfmt`)" });
+    let bf = std::fs::read_to_string("/proc/sys/fs/binfmt_misc/nle").is_ok();
+    optional(bf, "binfmt_misc handler for .exe", if bf { "registered" } else { "not registered (optional, see `nle binfmt`)" });
     println!("{}", if all_ok { "everything needed for native execution is available" } else { "some required checks failed" });
     if all_ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
 }
 
 fn cmd_binfmt(args: &[String]) -> ExitCode {
     let register = "/proc/sys/fs/binfmt_misc/register";
-    let entry = "/proc/sys/fs/binfmt_misc/anyexe";
+    let entry = "/proc/sys/fs/binfmt_misc/nle";
     let sub = args.first().map(String::as_str).unwrap_or("status");
-    let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/local/bin/anyexe"));
+    let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/local/bin/nle"));
     match sub {
         "status" => {
             match std::fs::read_to_string(entry) {
                 Ok(t) => print!("registered:\n{t}"),
-                Err(_) => println!("not registered. `sudo anyexe binfmt install` lets you run ./program.exe directly."),
+                Err(_) => println!("not registered. `sudo nle binfmt install` lets you run ./program.exe directly."),
             }
             ExitCode::SUCCESS
         }
         "install" => {
-            let line = format!(":anyexe:M::MZ::{}:", me.display());
+            let line = format!(":nle:M::MZ::{}:", me.display());
             if std::fs::metadata("/proc/sys/fs/binfmt_misc/register").is_err() {
                 println!("binfmt_misc is not mounted. Run: sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc");
                 return ExitCode::from(1);
@@ -503,7 +503,7 @@ fn cmd_binfmt(args: &[String]) -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("anyexe: cannot register ({e}). Run as root, for example:");
+                    eprintln!("nle: cannot register ({e}). Run as root, for example:");
                     eprintln!("  sudo sh -c 'echo \"{line}\" > {register}'");
                     ExitCode::from(1)
                 }
@@ -515,12 +515,12 @@ fn cmd_binfmt(args: &[String]) -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("anyexe: cannot remove ({e}). Run as root: sudo sh -c 'echo -1 > {entry}'");
+                eprintln!("nle: cannot remove ({e}). Run as root: sudo sh -c 'echo -1 > {entry}'");
                 ExitCode::from(1)
             }
         },
         other => {
-            eprintln!("anyexe: unknown binfmt command `{other}` (status, install, remove)");
+            eprintln!("nle: unknown binfmt command `{other}` (status, install, remove)");
             ExitCode::from(2)
         }
     }

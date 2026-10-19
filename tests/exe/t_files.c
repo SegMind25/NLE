@@ -31,7 +31,7 @@ static void cleanup(const char *dir) {
 int main(void) {
     char temp[MAX_PATH], dir[MAX_PATH], path[MAX_PATH], path2[MAX_PATH];
     CHECK(GetTempPathA(sizeof temp, temp) > 0);
-    snprintf(dir, sizeof dir, "%sanyexe_t_files_%lu", temp, GetCurrentProcessId());
+    snprintf(dir, sizeof dir, "%snle_t_files_%lu", temp, GetCurrentProcessId());
     cleanup(dir);
     RemoveDirectoryA(dir);
     CHECK(CreateDirectoryA(dir, NULL));
@@ -185,7 +185,7 @@ int main(void) {
     CHECK(SetCurrentDirectoryA(dir));
     char cwd2[MAX_PATH];
     GetCurrentDirectoryA(sizeof cwd2, cwd2);
-    CHECK(strstr(cwd2, "anyexe_t_files") != NULL);
+    CHECK(strstr(cwd2, "nle_t_files") != NULL);
     CHECK(GetFileAttributesA("SUB") != INVALID_FILE_ATTRIBUTES);
     CHECK(SetCurrentDirectoryA(cwd));
 

@@ -1,4 +1,4 @@
-# Architecture: AnyEXE
+# Architecture: NLE
 
 Reads `recon.md` and `features.csv`.
 
@@ -7,7 +7,7 @@ Reads `recon.md` and `features.csv`.
 | layer | choice | why |
 | --- | --- | --- |
 | language | Rust 2021, one dependency (`libc`) | speed, no runtime, memory-safe where it can be; the unsafe parts are the FFI edges |
-| runtime | `libanyexe` as `rlib` + `cdylib` | the CLI links it in; relinked programs link `libanyexe.so` dynamically |
+| runtime | `libnle` as `rlib` + `cdylib` | the CLI links it in; relinked programs link `libnle.so` dynamically |
 | calling convention | `extern "win64"` for everything a guest can call | no thunks for plain functions; variadics use small `naked` assembly thunks |
 | hardware | x86-64 Linux | the guest's machine code runs as it is; there is no CPU emulation |
 
@@ -23,7 +23,7 @@ src/shim/               the reimplemented libraries, one `shims!` table per area
 src/shim/seh.rs         .pdata unwinder, two-phase dispatch, hardware faults as exceptions, libgcc personality support
 src/analyze.rs          compatibility report and verdict
 src/relink.rs           PE image -> ET_EXEC ELF writer
-src/launch.rs           start-up for `run` and for relinked programs (`anyexe_relinked_main`)
+src/launch.rs           start-up for `run` and for relinked programs (`nle_relinked_main`)
 src/backend.rs          native / Wine selection
 src/cli.rs              the command line
 ```
@@ -41,14 +41,14 @@ SEH chain reachable from it. Each thread gets its own block and its own alternat
 
 ## Relinking
 
-`anyexe relink` writes an ELF executable at the PE's preferred base address:
+`nle relink` writes an ELF executable at the PE's preferred base address:
 
 * the PE headers and sections become `PT_LOAD` segments at their original virtual addresses (so absolute pointers
   and the import table need no change),
 * a metadata area above the image holds the ELF header, program headers, an interpreter string, a `PT_NOTE`
   describing the image, the dynamic section and a tiny entry stub,
-* the dynamic section names `libanyexe.so` and libc, with `DT_RUNPATH=$ORIGIN`,
-* the entry stub calls `__libc_start_main`, which calls `anyexe_relinked_main`; that adopts the image the kernel already
+* the dynamic section names `libnle.so` and libc, with `DT_RUNPATH=$ORIGIN`,
+* the entry stub calls `__libc_start_main`, which calls `nle_relinked_main`; that adopts the image the kernel already
   mapped (`loader::attach_mapped`), binds its imports and jumps to the entry point.
 
 The original `.exe` is not needed at run time. Opening its old path opens the ELF itself, so a program that starts
