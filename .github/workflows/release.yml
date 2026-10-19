@@ -1,9 +1,11 @@
 name: release
 
+# A release is built when a v* tag is pushed, and also when main gets a commit whose Cargo.toml version has no tag yet:
+# the release then creates the tag at that commit. Later pushes to main with the same version do nothing.
 on:
   push:
     tags: ["v*"]
-  # builds the release for a version without pushing the tag by hand: the release creates the tag
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -13,19 +15,37 @@ on:
 permissions:
   contents: write
 
-env:
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
-      - name: Package
+      - name: Which version
+        id: v
         run: |
-          name="nle-${TAG}-linux-x86_64"
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" != tag ] && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "$tag already exists: nothing to release"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "releasing $tag"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.v.outputs.release == 'true'
+      - run: cargo build --release
+        if: steps.v.outputs.release == 'true'
+      - name: Package
+        if: steps.v.outputs.release == 'true'
+        run: |
+          name="nle-${{ steps.v.outputs.tag }}-linux-x86_64"
           mkdir -p "$name/lib/nle" "$name/bin" "$name/share/applications" "$name/share/icons/hicolor/256x256/apps"
           cp target/release/nle "$name/bin/"
           cp target/release/libnle.so "$name/lib/nle/"
@@ -34,8 +54,9 @@ jobs:
           cp README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
       - uses: softprops/action-gh-release@v2
+        if: steps.v.outputs.release == 'true'
         with:
-          tag_name: ${{ env.TAG }}
+          tag_name: ${{ steps.v.outputs.tag }}
           target_commitish: ${{ github.sha }}
           files: nle-*.tar.gz
           generate_release_notes: true
