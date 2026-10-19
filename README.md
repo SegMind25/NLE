@@ -111,16 +111,40 @@ All of it is described in [docs/GUI.md](docs/GUI.md).
 
 ## Install
 
+Every release has a package for the common Linux systems (x86-64; built on AlmaLinux 8, so anything newer than Debian 10,
+Ubuntu 18.04 or RHEL 8 runs them). Download from the [Releases page](https://github.com/SegMind25/NLE/releases):
+
+| system | package | install |
+| --- | --- | --- |
+| Debian, Ubuntu, Linux Mint, Pop!_OS | `nle_VERSION_amd64.deb` | `sudo apt install ./nle_*_amd64.deb` |
+| Fedora, RHEL, openSUSE | `nle-VERSION-1.x86_64.rpm` | `sudo dnf install ./nle-*.rpm` |
+| Arch, Manjaro, EndeavourOS | `nle-VERSION-1-x86_64.pkg.tar.zst` | `sudo pacman -U nle-*.pkg.tar.zst` |
+| any distribution | `NLE-VERSION-x86_64.AppImage` | `chmod +x NLE-*.AppImage && ./NLE-*.AppImage` (opens the launcher; with arguments it works like `nle`) |
+| any distribution | `nle-vVERSION-linux-x86_64.tar.gz` | unpack, copy `bin`, `lib`, `share` into `~/.local` or `/usr/local` |
+
+Or without a package manager, in one line (installs the latest release in `~/.local`, checks its checksum):
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/SegMind25/NLE/main/get-nle.sh | sh
+```
+
+Then:
+
+```console
+$ nle doctor                           # checks that this machine can run native programs
+$ nle gui                              # the launcher window (also in the application menu)
+```
+
+To build from source instead (Linux on x86-64, kernel 4.x or newer, Rust 1.88 or newer):
+
 ```console
 $ git clone https://github.com/SegMind25/NLE && cd NLE
 $ ./install.sh                         # builds in release mode, installs to ~/.local
-$ nle doctor                        # checks that this machine can run native programs
 ```
 
-Requirements: Linux on x86-64 (any distribution, kernel 4.x or newer), a Rust toolchain 1.88 or newer to build.
-
-`install.sh` puts `nle` in `~/.local/bin` and `libnle.so` in `~/.local/lib/nle`. Set `PREFIX=/usr/local` (as
-root) for a system-wide install.
+`install.sh` puts `nle` in `~/.local/bin`, `libnle.so` in `~/.local/lib/nle` and the launcher entry in the application menu.
+Set `PREFIX=/usr/local` (as root) for a system-wide install. Details for every route, the packages' contents and how they
+are built are in [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Commands
 

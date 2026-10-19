@@ -1,0 +1,75 @@
+.TH NLE 1 "" "NLE" "User Commands"
+.SH NAME
+nle \- run Windows x64 programs as native Linux programs
+.SH SYNOPSIS
+.B nle
+[\fBrun\fR] [\fIoptions\fR] \fIapp.exe\fR [\fIargs\fR...]
+.br
+.B nle inspect
+[\fB\-\-json\fR] [\fB\-v\fR] \fIapp.exe\fR
+.br
+.B nle relink
+\fIapp.exe\fR [\fB\-o\fR \fIDIR\fR] [\fIoptions\fR]
+.br
+.B nle gui
+[\fIFOLDER\fR|\fIapp.exe\fR]
+.br
+.B nle coverage
+[\fB\-\-markdown\fR|\fB\-\-json\fR] [\fILIB\fR]
+.br
+.B nle doctor
+.br
+.B nle binfmt
+[status|install|remove]
+.SH DESCRIPTION
+NLE loads a Windows x86-64 executable into a Linux process and implements the Windows API it calls, without emulation.
+Programs with windows are drawn by NLE's own window system and shown on an X11 display.
+.PP
+.B nle app.exe
+runs a program. Its exit code is the program's.
+.B nle inspect
+reports which of the program's imports are implemented and gives a verdict (native, partial or unsupported).
+.B nle relink
+converts a program to a standalone Linux ELF that needs only libnle.so next to it.
+.B nle gui
+opens a window to browse for programs, inspect, run and relink them.
+.SH OPTIONS
+.TP
+.BI \-\-backend " auto|native|wine"
+Choose the native layer, or Wine for programs that need APIs NLE does not implement.
+.TP
+.BI \-\-prefix " DIR"
+Root of the emulated C:\e drive.
+.TP
+.B \-\-strict
+Refuse to start a program with unimplemented imports.
+.TP
+.B \-v
+Explain which backend was chosen.
+.SH ENVIRONMENT
+.TP
+.B NLE_PREFIX
+Directory tree used as the Windows drive (default: ~/.local/share/nle/prefix).
+.TP
+.B NLE_WINE
+Path of the wine binary used as a fallback.
+.TP
+.B NLE_TRACE
+Comma separated list of load, bind, api, all: debug logging.
+.TP
+.B NLE_GUI
+x11 (default when DISPLAY is set) or headless.
+.TP
+.B NLE_GUI_SCRIPT
+Script for the headless display (used by tests).
+.TP
+.B NLE_LIB
+Path of libnle.so, used by relink.
+.SH FILES
+.TP
+.I /usr/lib/nle/libnle.so
+The runtime library that relinked programs load.
+.SH SEE ALSO
+https://github.com/SegMind25/NLE
+.SH LICENSE
+MIT

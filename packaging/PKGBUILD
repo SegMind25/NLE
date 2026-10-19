@@ -1,0 +1,32 @@
+# Arch Linux: builds NLE from the source of a release. (The release page also has a ready-made .pkg.tar.zst.)
+# Maintainer: SegMind25 <noreply@users.noreply.github.com>
+pkgname=nle
+pkgver=0.2.1
+pkgrel=1
+pkgdesc="Run Windows x64 programs as native Linux programs"
+arch=('x86_64')
+url="https://github.com/SegMind25/NLE"
+license=('MIT')
+depends=('glibc' 'gcc-libs')
+makedepends=('cargo')
+optdepends=('wine: fallback for programs the native layer cannot run'
+            'libx11: windows of Windows programs'
+            'ttf-liberation: fonts for window text')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "NLE-$pkgver"
+    cargo build --release --locked
+}
+
+package() {
+    cd "NLE-$pkgver"
+    install -Dm755 target/release/nle "$pkgdir/usr/bin/nle"
+    install -Dm755 target/release/libnle.so "$pkgdir/usr/lib/nle/libnle.so"
+    install -Dm644 assets/nle.desktop "$pkgdir/usr/share/applications/nle.desktop"
+    install -Dm644 assets/favicon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/nle.png"
+    install -Dm644 packaging/nle.1 "$pkgdir/usr/share/man/man1/nle.1"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

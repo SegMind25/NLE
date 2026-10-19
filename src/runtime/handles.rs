@@ -287,7 +287,8 @@ thread_local! {
 pub fn current_tid() -> u32 {
     TID.with(|t| {
         if t.get() == 0 {
-            t.set(unsafe { libc::gettid() } as u32);
+            // the system call, not libc::gettid(): that function only exists in glibc 2.30 and newer
+            t.set(unsafe { libc::syscall(libc::SYS_gettid) } as u32);
         }
         t.get()
     })

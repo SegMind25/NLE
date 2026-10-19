@@ -5,3 +5,4 @@
 .nle-prefix/
 *.swp
 examples/bin/
+dist/

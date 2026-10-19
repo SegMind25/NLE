@@ -2,6 +2,9 @@ name: release
 
 # A release is built when a v* tag is pushed, and also when main gets a commit whose Cargo.toml version has no tag yet:
 # the release then creates the tag at that commit. Later pushes to main with the same version do nothing.
+#
+# The binaries are built on AlmaLinux 8 (glibc 2.28) so they run on every distribution newer than that, then packaged as a
+# tarball, .deb, .rpm, Arch package and AppImage (packaging/build.sh) and attached to the release.
 on:
   push:
     tags: ["v*"]
@@ -9,15 +12,18 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "version tag to release, for example v0.2.0"
+        description: "version tag to release, for example v0.2.1"
         required: true
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
     steps:
       - uses: actions/checkout@v4
       - name: Which version
@@ -38,25 +44,57 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
             echo "releasing $tag"
           fi
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.v.outputs.release == 'true'
-      - run: cargo build --release
-        if: steps.v.outputs.release == 'true'
-      - name: Package
-        if: steps.v.outputs.release == 'true'
+
+  build:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    container: almalinux:8
+    steps:
+      - name: Tools
+        run: dnf install -y gcc binutils git tar gzip ca-certificates
+      - uses: actions/checkout@v4
+      - name: Rust
         run: |
-          name="nle-${{ steps.v.outputs.tag }}-linux-x86_64"
-          mkdir -p "$name/lib/nle" "$name/bin" "$name/share/applications" "$name/share/icons/hicolor/256x256/apps"
-          cp target/release/nle "$name/bin/"
-          cp target/release/libnle.so "$name/lib/nle/"
-          cp assets/nle.desktop "$name/share/applications/"
-          cp assets/favicon.png "$name/share/icons/hicolor/256x256/apps/nle.png"
-          cp README.md LICENSE "$name/"
-          tar czf "$name.tar.gz" "$name"
-      - uses: softprops/action-gh-release@v2
-        if: steps.v.outputs.release == 'true'
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: cargo build --release
+      - name: The binaries must run on glibc 2.28
+        run: |
+          max=$(objdump -T target/release/nle target/release/libnle.so | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n 1)
+          echo "the binaries need glibc $max"
+          newest=$(printf '%s\n' 2.28 "$max" | sort -V | tail -n 1)
+          [ "$newest" = 2.28 ] || { echo "too new for RHEL 8, Debian 10 and Ubuntu 18.04"; exit 1; }
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.v.outputs.tag }}
+          name: build
+          path: |
+            target/release/nle
+            target/release/libnle.so
+
+  package:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: target/release
+      - name: Packages
+        run: |
+          chmod +x target/release/nle target/release/libnle.so
+          tag="${{ needs.version.outputs.tag }}"
+          NLE_VERSION="${tag#v}" packaging/build.sh
+          ls -l dist
+      - name: Try the .deb
+        run: |
+          sudo apt-get install -y ./dist/nle_*_amd64.deb
+          nle --version
+          nle doctor || true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          files: nle-*.tar.gz
+          files: dist/*
           generate_release_notes: true

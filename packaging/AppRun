@@ -1,0 +1,10 @@
+#!/bin/sh
+# Starts NLE from inside an AppImage. With no arguments it opens the launcher window; with arguments it behaves like
+# the `nle` command (so `NLE-x86_64.AppImage app.exe` runs app.exe).
+HERE="$(dirname "$(readlink -f "$0")")"
+export PATH="$HERE/usr/bin:$PATH"
+export NLE_LIB="$HERE/usr/lib/nle/libnle.so"
+if [ "$#" -eq 0 ]; then
+    exec "$HERE/usr/bin/nle" gui
+fi
+exec "$HERE/usr/bin/nle" "$@"

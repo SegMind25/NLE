@@ -38,3 +38,35 @@ jobs:
         run: |
           ./target/release/nle coverage --markdown > /tmp/COVERAGE.md
           diff -u docs/COVERAGE.md /tmp/COVERAGE.md
+
+  # the Linux packages build and work (the release workflow builds them again from an AlmaLinux 8 build)
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Packages
+        run: |
+          packaging/build.sh
+          ls -l dist
+      - name: Install the .deb
+        run: |
+          sudo apt-get install -y ./dist/nle_*_amd64.deb
+          nle --version
+          man -w nle || true
+          test -f /usr/share/applications/nle.desktop
+      - name: Run the AppImage
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          dist/NLE-*-x86_64.AppImage --version
+          NLE_GUI=headless NLE_GUI_SCRIPT="wait 300; snapshot /tmp/launcher.png; close" dist/NLE-*-x86_64.AppImage
+          test -s /tmp/launcher.png
+      - name: Unpack the tarball
+        run: |
+          mkdir /tmp/t && tar -C /tmp/t -xzf dist/nle-v*-linux-x86_64.tar.gz
+          /tmp/t/nle-v*-linux-x86_64/bin/nle --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/*

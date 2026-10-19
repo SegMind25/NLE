@@ -1,0 +1,65 @@
+# One description for the .deb, .rpm and Arch Linux packages (built by packaging/build.sh with nfpm, which fills in
+# @BUILD@, @STAGE@ and the version).
+name: nle
+arch: amd64
+platform: linux
+version: ${NLE_VERSION}
+section: utils
+priority: optional
+maintainer: SegMind25 <noreply@users.noreply.github.com>
+vendor: SegMind25
+homepage: https://github.com/SegMind25/NLE
+license: MIT
+description: |
+  Run Windows x64 programs as native Linux programs
+  NLE loads a Windows executable into a Linux process and implements the Windows API it calls, without emulation.
+  It runs console and window programs (menus, dialogs, common controls, GDI), converts programs to standalone
+  Linux ELF files, and has a launcher window (nle gui).
+contents:
+  - src: @BUILD@/nle
+    dst: /usr/bin/nle
+    file_info:
+      mode: 0755
+  - src: @BUILD@/libnle.so
+    dst: /usr/lib/nle/libnle.so
+    file_info:
+      mode: 0755
+  - src: assets/nle.desktop
+    dst: /usr/share/applications/nle.desktop
+  - src: assets/favicon.png
+    dst: /usr/share/icons/hicolor/256x256/apps/nle.png
+  - src: @STAGE@/nle.1.gz
+    dst: /usr/share/man/man1/nle.1.gz
+  - src: README.md
+    dst: /usr/share/doc/nle/README.md
+  - src: docs/GUI.md
+    dst: /usr/share/doc/nle/GUI.md
+  - src: docs/LAUNCHER.md
+    dst: /usr/share/doc/nle/LAUNCHER.md
+  - src: LICENSE
+    dst: /usr/share/doc/nle/copyright
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.28)
+    recommends:
+      - libx11-6
+      - fonts-liberation | fonts-dejavu-core
+    suggests:
+      - wine
+  rpm:
+    depends:
+      - glibc >= 2.28
+    recommends:
+      - libX11
+      - liberation-sans-fonts
+    suggests:
+      - wine
+  archlinux:
+    depends:
+      - glibc
+    recommends:
+      - libx11
+      - ttf-liberation
+    suggests:
+      - wine
