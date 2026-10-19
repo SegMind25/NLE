@@ -37,3 +37,4 @@ Sandboxing,security,could,no,skip,programs run with the user's rights; not a sec
 "Menus, dialog resources and common controls",compat,should,yes,yes,"menu bars and pop-ups, accelerators, dialogs from RT_DIALOG, resources from the executable, comctl32 (tool bar, status bar, tab, list view, tree view, progress / track / spin, image lists); no rich edit, MDI or common dialogs"
 Direct3D / OpenGL graphics,compat,could,yes,no,out of scope
 Headless display driven by a script,testing,could,no,yes,NLE_GUI=headless with NLE_GUI_SCRIPT; used by the tests and the screenshots
+Desktop launcher window (`nle gui`),launcher,could,no,yes,"browse, inspect, run, relink and doctor from a window; docs/LAUNCHER.md"

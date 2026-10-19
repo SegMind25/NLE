@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=NLE
+GenericName=Windows program launcher
+Comment=Run Windows programs natively on Linux
+Exec=nle gui %f
+Icon=nle
+Terminal=false
+Categories=System;Utility;
+MimeType=application/vnd.microsoft.portable-executable;application/x-ms-dos-executable;application/x-dosexec;
+StartupNotify=false

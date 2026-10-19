@@ -22,7 +22,12 @@ install -d "$PREFIX/bin" "$PREFIX/lib/nle"
 install -m 755 target/release/nle "$PREFIX/bin/nle"
 install -m 755 target/release/libnle.so "$PREFIX/lib/nle/libnle.so"
 
-echo "installed: $PREFIX/bin/nle (runtime library in $PREFIX/lib/nle)"
+# the launcher (`nle gui`) in the application menu, and as a handler for .exe files
+install -d "$PREFIX/share/applications" "$PREFIX/share/icons/hicolor/256x256/apps"
+sed "s|^Exec=nle |Exec=$PREFIX/bin/nle |" assets/nle.desktop > "$PREFIX/share/applications/nle.desktop"
+install -m 644 assets/favicon.png "$PREFIX/share/icons/hicolor/256x256/apps/nle.png"
+
+echo "installed: $PREFIX/bin/nle (runtime library in $PREFIX/lib/nle, launcher entry in $PREFIX/share/applications)"
 case ":$PATH:" in
     *":$PREFIX/bin:"*) ;;
     *) echo "note: $PREFIX/bin is not on your PATH" ;;

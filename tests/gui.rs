@@ -37,7 +37,7 @@ fn programs() -> Option<&'static PathBuf> {
         std::fs::create_dir_all(&dir).unwrap();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
         let windres = tool("x86_64-w64-mingw32-windres");
-        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs", "common"] {
+        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs", "common", "opengl"] {
             let c = src.join(format!("{name}.c"));
             let gui = std::fs::read_to_string(&c).unwrap().contains("WinMain");
             let mut cmd = Command::new(&gcc);
@@ -54,7 +54,7 @@ fn programs() -> Option<&'static PathBuf> {
                 assert!(out.status.success(), "windres {name}: {}", String::from_utf8_lossy(&out.stderr));
                 cmd.arg(&obj);
             }
-            cmd.args(["-lgdi32", "-luser32", "-lcomctl32"]);
+            cmd.args(["-lgdi32", "-luser32", "-lcomctl32", "-lopengl32"]);
             let out = cmd.output().expect("compiler did not start");
             assert!(out.status.success(), "compiling {name}: {}", String::from_utf8_lossy(&out.stderr));
         }
@@ -466,6 +466,89 @@ fn common_controls_answer_their_messages() {
     assert_eq!(out.status.code(), Some(0));
 }
 
+/// A folder with a few programs for the launcher: a sub folder, a console program, window programs and one that needs
+/// OpenGL (so its verdict is "partial"). Rows of the list: .. 192, sub 211, common 230, msgbox 249, opengl 268, window 287.
+fn launcher_dir(name: &str) -> PathBuf {
+    let dir = work_dir().join(format!("launcher-{name}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    for exe in ["common", "msgbox", "opengl", "window"] {
+        std::fs::copy(programs().unwrap().join(format!("{exe}.exe")), dir.join(format!("{exe}.exe"))).unwrap();
+    }
+    dir
+}
+
+/// Whether `want` appears in `got` in this order (other lines may lie between).
+fn in_order(got: &[String], want: &[&str]) -> bool {
+    let mut it = got.iter();
+    want.iter().all(|w| it.any(|g| g == w))
+}
+
+#[test]
+fn launcher_shows_the_verdict_runs_relinks_and_checks_the_system() {
+    need_mingw!();
+    let dir = launcher_dir("headless");
+    let (card, after) = (shot("launcher-partial"), shot("launcher-output"));
+    // rows (surface coordinates): .. 192, sub 211, common 230, msgbox 249, opengl 268; buttons at y=103:
+    // Run x=56, Doctor x=452, Relink x=276
+    let script = format!(
+        "wait 700; click 100 268; wait 100; snapshot {}; click 100 230; click 100 249; click 56 103; wait 3000; \
+         click 452 103; wait 3500; dblclick 60 211; wait 500; key backspace; wait 500; \
+         click 100 249; click 276 103; wait 3500; snapshot {}; close",
+        card.display(),
+        after.display()
+    );
+    let out = Command::new(nle())
+        .arg("gui")
+        .arg("--log")
+        .arg(&dir)
+        .env("NLE_GUI", "headless")
+        .env("NLE_GUI_SCRIPT", &script)
+        .env("NLE_PREFIX", work_dir().join("prefix-launcher"))
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let got = lines(&out);
+    let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+    let (dir_line, sub_line) = (format!("DIR {name}"), "DIR sub".to_string());
+    let want = [
+        dir_line.as_str(),
+        "SELECT opengl.exe partial",
+        "SELECT common.exe native",
+        "SELECT msgbox.exe native",
+        "RUN msgbox.exe",
+        "OUT answer: yes",
+        "EXIT run msgbox.exe 0",
+        "DOCTOR",
+        "OUT everything needed for native execution is available",
+        "EXIT doctor 0",
+        "SELECT sub folder",
+        sub_line.as_str(),
+        dir_line.as_str(),
+        "SELECT msgbox.exe native",
+        "RELINK msgbox.exe",
+        "EXIT relink msgbox.exe 0",
+        "RELINK ok",
+    ];
+    assert!(in_order(&got, &want), "{got:#?}");
+    assert!(dir.join("msgbox-linux/msgbox").is_file() && dir.join("msgbox-linux/libnle.so").is_file(), "the relinked program and its runtime were written");
+    // the card says PARTIAL in amber for the OpenGL program, and the list shows green ticks for the native ones
+    let a = Image::read(&card);
+    assert!(a.near(480, 202, (217, 119, 6), 4), "the verdict pill is amber");
+    assert!(a.near(26, 230, (22, 163, 74), 4), "native programs have a green tick");
+    // after the run and the relink the Output tab is showing the text
+    let b = Image::read(&after);
+    assert!(b.dark_in(432, 320, 1000, 660) > 300, "the output is written in the log");
+}
+
+#[test]
+fn launcher_without_a_display_explains_itself() {
+    need_mingw!();
+    let out = Command::new(nle()).arg("gui").env_remove("DISPLAY").env_remove("NLE_GUI").env_remove("WAYLAND_DISPLAY").output().unwrap();
+    assert_eq!(out.status.code(), Some(70));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("needs a window"), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
 #[test]
 fn switching_pages_repaints_only_what_changed_and_keeps_the_tool_bar() {
     need_mingw!();
@@ -661,9 +744,18 @@ fn on_x(exe: &str, title: &str, steps: &[&str]) -> Option<i32> {
 
 /// Like `on_x`, with program arguments, and returning what the program printed.
 fn on_x_with(exe: &str, args: &[&str], title: &str, steps: &[&str]) -> Option<(i32, String)> {
+    let program = programs()?.join(format!("{exe}.exe"));
+    let mut cli = vec!["run".to_string(), program.display().to_string()];
+    cli.extend(args.iter().map(|a| a.to_string()));
+    on_x_cli(&cli, &format!("xprefix-{exe}"), title, steps)
+}
+
+/// Runs `nle` with these arguments on a fresh X server while `xdrive` plays the user; returns the exit code and stdout.
+fn on_x_cli(cli: &[String], prefix: &str, title: &str, steps: &[&str]) -> Option<(i32, String)> {
     let x = start_xvfb()?;
     let drive = xdrive()?;
-    let mut prog = Command::new(nle()).arg("run").arg(programs()?.join(format!("{exe}.exe"))).args(args).env("DISPLAY", &x.display).env_remove("NLE_GUI").env("NLE_PREFIX", work_dir().join(format!("xprefix-{exe}"))).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+    let exe = prefix;
+    let mut prog = Command::new(nle()).args(cli).env("DISPLAY", &x.display).env_remove("NLE_GUI").env("NLE_PREFIX", work_dir().join(prefix)).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
     let mut cmd = Command::new(drive);
     cmd.env("DISPLAY", &x.display).arg(title).arg("wait").arg("8000").args(steps);
     let driven = cmd.output().ok()?;
@@ -698,6 +790,27 @@ macro_rules! need_x {
             return;
         }
     };
+}
+
+#[test]
+fn x11_launcher_runs_a_program_with_a_window_and_sees_it_exit() {
+    need_x!();
+    if !xdrive_has_xtest() {
+        eprintln!("skipping: needs libXtst for real pointer events");
+        return;
+    }
+    need_mingw!();
+    let dir = launcher_dir("x11");
+    let ppm = work_dir().join("x-launcher.ppm");
+    // select window.exe and Run it; its window is a window of its own: close it, and the launcher reports the exit
+    let steps = ["fclick", "100", "287", "sleep", "300", "fclick", "56", "103", "sleep", "2000", "title", "NLE demo", "wait", "6000", "close", "sleep", "1500", "title", "NLE", "wait", "3000", "rshot", ppm.to_str().unwrap(), "close"];
+    let cli = vec!["gui".to_string(), "--log".to_string(), dir.display().to_string()];
+    let (code, out) = on_x_cli(&cli, "xprefix-launcher", "NLE", &steps).expect("ran");
+    assert_eq!(code, 0);
+    let got: Vec<String> = out.lines().map(|l| l.trim().to_string()).collect();
+    assert!(in_order(&got, &["SELECT window.exe native", "RUN window.exe", "EXIT run window.exe 0"]), "{got:#?}");
+    let img = Image::from_ppm(&ppm);
+    assert!(img.dark_in(0, 20, 400, 80) > 500, "the dark header is drawn");
 }
 
 #[test]

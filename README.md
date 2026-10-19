@@ -79,6 +79,17 @@ and draws what they print.
 | **Common controls**: tool bar, tab control, a report-view **list view** with icons and check boxes, status bar:<br><img src="docs/screenshots/16-list-view.png" alt="common.exe, list view"> | The **tree view** with buttons, lines and images:<br><img src="docs/screenshots/17-tree-view.png" alt="common.exe, tree view"> |
 | **Progress, track and spin controls:**<br><img src="docs/screenshots/18-controls.png" alt="common.exe, controls"> | |
 
+### The launcher
+
+`nle gui` opens NLE's own window, built on the same window system as the programs it runs: browse folders for Windows
+programs, see the verdict and imports of the one you pick, run it, convert it to a Linux ELF, and check the system.
+Details in [docs/LAUNCHER.md](docs/LAUNCHER.md).
+
+| | |
+| --- | --- |
+| **Browse and inspect.** Green ticks are programs that run natively; the card shows the verdict and how much of the program NLE implements.<br><img src="docs/screenshots/20-launcher.png" alt="nle gui"> | **See what is missing.** An OpenGL program is partial; the second tab names every function NLE does not implement.<br><img src="docs/screenshots/21-launcher-partial.png" alt="nle gui, a partial program"> |
+| **Run it** and read its output next to the program's details.<br><img src="docs/screenshots/22-launcher-output.png" alt="nle gui, output"> | |
+
 ## Try it
 
 The programs in [`examples/`](examples) are built with MinGW-w64 (`apt install gcc-mingw-w64-x86-64`):
@@ -91,6 +102,7 @@ $ nle examples/bin/controls.exe        # a form with windows (needs an X11 displ
 $ nle examples/bin/paint.exe           # drag to draw, 1-4 colours, C clears
 $ nle examples/bin/msgbox.exe          # message boxes; the answer is the exit code
 $ nle examples/bin/common.exe          # tool bar, tabs, list view, tree view, status bar, spin control
+$ nle gui examples/bin                 # NLE's own window: pick a program, see its verdict, run it
 ```
 
 Windows work through the display NLE finds in `DISPLAY`. For tests and CI there is a scripted headless display:
@@ -119,6 +131,7 @@ root) for a system-wide install.
 | `nle relink app.exe [-o DIR] [--name NAME] [--keep-original] [--strict]` | write a standalone native ELF (plus `libnle.so` and the program's DLLs) |
 | `nle coverage [--markdown \| --json] [LIB]` | list the Windows functions that are implemented |
 | `nle doctor` | check address space, segment selectors, `/proc`, optional pieces |
+| `nle gui [FOLDER \| app.exe]` | the launcher window: browse, inspect, run, relink (see [docs/LAUNCHER.md](docs/LAUNCHER.md)) |
 | `nle binfmt install \| remove \| status` | register `.exe` files with the kernel, so `./app.exe` just runs |
 
 Run options: `--backend auto\|native\|wine`, `--prefix DIR`, `--strict`, `-v`.

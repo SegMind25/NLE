@@ -12,6 +12,7 @@ pub mod backend;
 pub mod cli;
 pub mod gui;
 pub mod launch;
+pub mod launcher;
 pub mod loader;
 pub mod pe;
 pub mod registry;

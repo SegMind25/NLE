@@ -4,3 +4,4 @@
 !tests/fixtures/**
 .nle-prefix/
 *.swp
+examples/bin/

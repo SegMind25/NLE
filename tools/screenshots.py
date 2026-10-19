@@ -180,6 +180,27 @@ GUI_SCENES = [
         "steps": ["shot"],
     },
     {
+        "name": "20-launcher",
+        "title": "nle gui: browse, inspect, run",
+        "cli": ["gui", str(DEMO / "programs")],
+        "wait_title": "NLE",
+        "steps": ["fclick", "100", "211", "sleep", "500", "shot"],
+    },
+    {
+        "name": "21-launcher-partial",
+        "title": "nle gui: what a program is missing",
+        "cli": ["gui", str(DEMO / "programs")],
+        "wait_title": "NLE",
+        "steps": ["fclick", "100", "363", "sleep", "400", "fclick", "532", "302", "sleep", "400", "shot"],
+    },
+    {
+        "name": "22-launcher-output",
+        "title": "nle gui: run a program, see its output",
+        "cli": ["gui", str(DEMO / "programs")],
+        "wait_title": "NLE",
+        "steps": ["fclick", "100", "458", "sleep", "400", "fclick", "56", "103", "sleep", "3500", "shot"],
+    },
+    {
         "name": "12-message-box",
         "title": "msgbox.exe",
         "exe": "msgbox.exe",
@@ -290,6 +311,12 @@ def prepare():
         sh("rustc", "--target", "x86_64-pc-windows-gnu", "-O", "-o", str(DEMO / "rs_hello.exe"),
            str(ROOT / "tests" / "lang" / "hello.rs"))
     shutil.rmtree(DEMO / ".gocache", ignore_errors=True)
+    # the folder the launcher scenes browse: the examples and the Go / Rust programs
+    programs = DEMO / "programs"
+    programs.mkdir()
+    for name in ["common", "controls", "dialogs", "hello", "lists", "menus", "msgbox", "opengl", "paint", "progress", "scroll", "sysinfo", "window", "go_hello", "rs_hello"]:
+        if (DEMO / f"{name}.exe").exists():
+            shutil.copy(DEMO / f"{name}.exe", programs / f"{name}.exe")
 
 
 # --- drawing -----------------------------------------------------------------------------------
@@ -388,13 +415,14 @@ def render_gui(scene: dict, tmp: Path, display: str, drive: Path):
     ppm = tmp / f"{scene['name']}.ppm"
     env = dict(os.environ, DISPLAY=display, NLE_PREFIX=str(DEMO / ".prefix"), HOME=str(DEMO.parent), USER="user")
     env.pop("NLE_GUI", None)
-    prog = subprocess.Popen([str(NLE), "run", str(DEMO / scene["exe"])], env=env, cwd=DEMO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    args = scene.get("cli") or ["run", str(DEMO / scene["exe"])]
+    prog = subprocess.Popen([str(NLE), *args], env=env, cwd=DEMO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     cmd = [str(drive), scene["wait_title"], "wait", "8000"]
     for st in scene["steps"]:
         cmd += [st, str(ppm)] if st in ("shot", "rshot") else [st]
     if "finish" in scene:
         cmd += scene["finish"]
-    elif scene["exe"] == "msgbox.exe":
+    elif scene.get("exe") == "msgbox.exe":
         cmd += ["key", "y", "sleep", "400", "title", "NLE", "wait", "5000", "key", "enter"]
     else:
         cmd += ["close"]

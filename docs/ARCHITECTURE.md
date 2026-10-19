@@ -107,6 +107,9 @@ puts the finished pixels on the screen and brings keyboard and mouse input back.
 X for tests. The controls (BUTTON, STATIC, EDIT, LISTBOX, COMBOBOX, SCROLLBAR and the `comctl32` classes), menus and dialog boxes are
 ordinary window procedures and window-system code registered as built-in classes, so programs can subclass them.
 
+`nle gui` (`src/launcher.rs`, see [LAUNCHER.md](LAUNCHER.md)) is a Rust program on the same window system: it browses for
+programs, runs `analyze` on the selected one, and starts `nle run`, `nle relink` and `nle doctor` as child processes whose output it shows.
+
 ## Backends
 
 `backend.rs` decides between the native layer and Wine from the `inspect` verdict:

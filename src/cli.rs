@@ -18,6 +18,7 @@ usage:
   nle relink <app.exe> [-o DIR] [options]   convert to a native Linux ELF
   nle coverage [--markdown|--json] [LIB]    list the implemented Windows APIs
   nle doctor                                check this system
+  nle gui [FOLDER|app.exe]                  open NLE's window: browse, inspect, run, relink
   nle binfmt [status|install|remove]        let the kernel run .exe files directly
   nle --version | --help
 
@@ -65,6 +66,7 @@ pub fn main() -> ExitCode {
         "relink" => cmd_relink(&args[1..]),
         "coverage" => cmd_coverage(&args[1..]),
         "doctor" => cmd_doctor(),
+        "gui" => crate::launcher::main(&args[1..]),
         "binfmt" => cmd_binfmt(&args[1..]),
         _ => cmd_run(&args),
     }

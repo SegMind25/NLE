@@ -36,3 +36,4 @@ features 88.1  (26 counted, must-haves 15 of 15 done)
 - Trace what the program does
 - Sandboxing
 - Headless display driven by a script
+- Desktop launcher window (`nle gui`)
