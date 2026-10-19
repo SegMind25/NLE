@@ -220,7 +220,12 @@ impl Gui {
                 }
                 Event::Key { win, down, vk, scan, ch, ext, repeat } => {
                     let top = self.resolve_native(win);
-                    let target = if self.focus != 0 && self.windows.contains_key(&self.focus) { self.focus } else { top };
+                    // the key is for the window the display delivered it to: the focus decides only inside that
+                    // window (a dialog that is still opening has not taken the focus from its owner yet, and keys
+                    // sent to the dialog must not end up in the owner); pop-ups never take the focus, so keys that
+                    // reach one belong to the focus window
+                    let focus_here = self.focus != 0 && self.windows.contains_key(&self.focus) && (top == 0 || self.top_level_of(self.focus) == top || !self.activatable(top));
+                    let target = if focus_here { self.focus } else { top };
                     if target == 0 {
                         continue;
                     }

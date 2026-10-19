@@ -773,6 +773,29 @@ mod tests {
     }
 
     #[test]
+    fn a_key_sent_to_a_window_that_has_not_taken_the_focus_yet_stays_in_that_window() {
+        use crate::gui::backend::Event;
+        let mut g = gui();
+        class(&mut g, "K");
+        let owner = make(&mut g, "k", 0x10CF_0000, 0, 0, 300, 200, 0);
+        let field = make(&mut g, "k", WS_CHILD | WS_VISIBLE, 0, 0, 50, 20, owner);
+        let dialog = make(&mut g, "k", 0x10CF_0000, 400, 0, 200, 100, 0);
+        let edit = make(&mut g, "k", WS_CHILD | WS_VISIBLE, 0, 0, 50, 20, dialog);
+        // the dialog is still opening: the focus is in its owner
+        g.focus = field;
+        let native = g.window(dialog).unwrap().native;
+        assert_ne!(native, 0);
+        g.process_events(vec![Event::Key { win: native, down: true, vk: 0x45, scan: 0x12, ch: Some('e'), ext: false, repeat: false }]);
+        let queued = g.threads.get(&1).map(|t| t.queue.iter().map(|m| m.hwnd).collect::<Vec<_>>()).unwrap_or_default();
+        assert_eq!(queued, vec![dialog], "the key goes to the dialog, not to the owner's focus");
+        // once the dialog has the focus, fetching the message sends it to the control that has it
+        g.focus = edit;
+        let mut m = g.threads.get(&1).unwrap().queue[0];
+        g.retarget_key(&mut m);
+        assert_eq!(m.hwnd, edit);
+    }
+
+    #[test]
     fn registering_a_class_twice_fails_and_lookup_ignores_case() {
         let mut g = gui();
         class(&mut g, "Same");
