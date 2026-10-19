@@ -59,6 +59,10 @@ pub struct Wnd {
     pub sb: super::nc::Bars,
     /// `TrackMouseEvent(TME_LEAVE)` is pending.
     pub track_leave: bool,
+    /// `SetWindowSubclass`: (procedure, id, reference data), the one installed last first; the window's own procedure
+    /// is kept in `orig_proc` while `wndproc` points at the dispatcher.
+    pub subclass: Vec<(usize, usize, usize)>,
+    pub orig_proc: usize,
 }
 
 // ---- metrics (Windows 10 look) -----------------------------------------------------------------
@@ -445,6 +449,8 @@ impl Gui {
             cursor: Cursor::Arrow,
             sb: Default::default(),
             track_leave: false,
+            subclass: Vec::new(),
+            orig_proc: 0,
         };
         wnd.unicode = if class.native { !a.ansi } else { class.unicode };
         if !is_child {
@@ -553,9 +559,13 @@ impl Gui {
         }
         let clip_children = w.style & WS_CLIPCHILDREN != 0;
         let children = w.children.clone();
+        // the update area is one rectangle, so what gets painted can be larger than `r`: children have to be told about
+        // all of it, or the parent's erase wipes them where nobody asked them to repaint
+        let mut total = r;
         if let Some(w) = self.windows.get_mut(&h) {
             w.update = w.update.union(&r);
             w.erase |= erase;
+            total = w.update;
         }
         if !clip_children {
             for c in children {
@@ -565,7 +575,7 @@ impl Gui {
                 }
                 let ci = cwnd.inset();
                 let origin = (cwnd.rect.l + ci.l, cwnd.rect.t + ci.t);
-                let in_child = r.offset(-origin.0, -origin.1);
+                let in_child = total.offset(-origin.0, -origin.1);
                 self.invalidate(c, Some(in_child), erase);
             }
         }

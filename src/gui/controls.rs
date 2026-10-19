@@ -75,6 +75,14 @@ pub enum Ctl {
     Combo(Box<super::ctl_combo::ComboState>),
     /// A SCROLLBAR control: where in the thumb the mouse took hold, and whether the thumb is being dragged.
     Scroll { grab: i32, dragging: bool },
+    Progress(super::ctl_basic::Progress),
+    Trackbar(super::ctl_basic::Trackbar),
+    UpDown(super::ctl_basic::UpDown),
+    Status(Box<super::ctl_basic::StatusBar>),
+    Tab(Box<super::ctl_tab::TabControl>),
+    ListView(Box<super::ctl_listview::ListView>),
+    Tree(Box<super::ctl_treeview::Tree>),
+    Toolbar(Box<super::ctl_toolbar::Toolbar>),
 }
 
 #[derive(Default, Clone)]

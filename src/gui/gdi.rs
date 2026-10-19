@@ -109,6 +109,7 @@ pub enum Object {
     Dc(Dc),
     /// An icon or cursor image loaded from a resource or file.
     Icon(std::sync::Arc<super::res::IconImage>),
+    ImageList(Box<super::imagelist::ImageList>),
     /// Stock cursors and icons, palettes and other objects that only need to exist.
     Stub(u32),
 }

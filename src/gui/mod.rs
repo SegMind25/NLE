@@ -15,13 +15,20 @@
 pub mod api;
 pub mod backend;
 pub mod controls;
+pub mod ctl_basic;
 pub mod ctl_combo;
 pub mod ctl_list;
+pub mod ctl_listview;
+pub mod ctl_tab;
+pub mod ctl_toolbar;
+pub mod ctl_treeview;
 pub mod dialog;
 pub mod font;
 pub mod gdi;
 pub mod headless;
+pub mod imagelist;
 pub mod menu;
+pub mod stock_icons;
 pub mod msg;
 pub mod msgbox;
 pub mod nc;
@@ -244,6 +251,11 @@ impl Gui {
         gdi::init_stock(&mut g);
         controls::register_builtin_classes(&mut g);
         dialog::register_class(&mut g);
+        ctl_basic::register_classes(&mut g);
+        ctl_tab::register_class(&mut g);
+        ctl_listview::register_class(&mut g);
+        ctl_treeview::register_class(&mut g);
+        ctl_toolbar::register_class(&mut g);
         g
     }
 

@@ -144,6 +144,19 @@ pub fn family_of(dll: &str) -> Option<&'static str> {
 }
 
 /// True for DLLs that belong to Windows itself (as opposed to ones shipped with an app).
+/// Names of the functions a library exports only by number, for programs that import them that way.
+pub fn ordinal_name(dll: &str, ord: u32) -> Option<&'static str> {
+    let d = dll.to_ascii_lowercase();
+    let d = d.trim_end_matches(".dll");
+    match (d, ord) {
+        ("comctl32", 410) => Some("SetWindowSubclass"),
+        ("comctl32", 411) => Some("GetWindowSubclass"),
+        ("comctl32", 412) => Some("RemoveWindowSubclass"),
+        ("comctl32", 413) => Some("DefSubclassProc"),
+        _ => None,
+    }
+}
+
 pub fn is_system_dll(dll: &str) -> bool {
     family_of(dll).is_some()
 }

@@ -368,7 +368,16 @@ fn icon_object(img: Option<crate::gui::res::IconImage>, stock: u32) -> usize {
 /// `LoadIcon`: a stock icon for module 0, otherwise the group icon from the module's resources.
 unsafe fn load_icon(inst: usize, name: usize, wide: bool) -> usize {
     if inst == 0 {
-        return stub_handle(2, if name < 0x10000 { name as u32 } else { 32512 });
+        let id = if name < 0x10000 { name as u32 } else { 32512 };
+        return with(|g| {
+            let key = (2 * 100_000 + id) as i32 + 7000;
+            if let Some(h) = g.stock.get(&key) {
+                return *h;
+            }
+            let h = g.add_object(Object::Icon(std::sync::Arc::new(crate::gui::stock_icons::stock_icon(id))));
+            g.stock.insert(key, h);
+            h
+        });
     }
     icon_object(crate::gui::res::load_icon_image(inst, &crate::gui::res::Key::from_arg(name, wide), 32), 32512)
 }
@@ -380,7 +389,7 @@ fn bitmap_object(s: Option<crate::gui::surface::Surface>) -> usize {
     }
 }
 
-unsafe fn load_bitmap(inst: usize, name: usize, wide: bool) -> usize {
+pub(crate) unsafe fn load_bitmap(inst: usize, name: usize, wide: bool) -> usize {
     use crate::gui::res::{self, Key};
     if inst == 0 {
         // the built-in OEM bitmaps (check marks, arrows) are not drawn; a small blank one stands in

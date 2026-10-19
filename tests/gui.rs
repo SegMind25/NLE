@@ -37,7 +37,7 @@ fn programs() -> Option<&'static PathBuf> {
         std::fs::create_dir_all(&dir).unwrap();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
         let windres = tool("x86_64-w64-mingw32-windres");
-        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs"] {
+        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs", "common"] {
             let c = src.join(format!("{name}.c"));
             let gui = std::fs::read_to_string(&c).unwrap().contains("WinMain");
             let mut cmd = Command::new(&gcc);
@@ -54,7 +54,7 @@ fn programs() -> Option<&'static PathBuf> {
                 assert!(out.status.success(), "windres {name}: {}", String::from_utf8_lossy(&out.stderr));
                 cmd.arg(&obj);
             }
-            cmd.args(["-lgdi32", "-luser32"]);
+            cmd.args(["-lgdi32", "-luser32", "-lcomctl32"]);
             let out = cmd.output().expect("compiler did not start");
             assert!(out.status.success(), "compiling {name}: {}", String::from_utf8_lossy(&out.stderr));
         }
@@ -62,6 +62,9 @@ fn programs() -> Option<&'static PathBuf> {
         let c = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/gui/t_sbctl.c");
         let out = Command::new(&gcc).arg("-O1").arg("-o").arg(dir.join("t_sbctl.exe")).arg(&c).arg("-luser32").output().expect("compiler did not start");
         assert!(out.status.success(), "compiling t_sbctl: {}", String::from_utf8_lossy(&out.stderr));
+        let c = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/gui/t_comctl.c");
+        let out = Command::new(&gcc).arg("-O1").arg("-o").arg(dir.join("t_comctl.exe")).arg(&c).args(["-lgdi32", "-luser32", "-lcomctl32"]).output().expect("compiler did not start");
+        assert!(out.status.success(), "compiling t_comctl: {}", String::from_utf8_lossy(&out.stderr));
         Some(dir)
     })
     .as_ref()
@@ -414,6 +417,68 @@ fn list_and_combo_boxes_select_and_notify() {
 }
 
 #[test]
+fn common_controls_toolbar_list_tree_tabs_and_spin_notify_the_program() {
+    need_mingw!();
+    // tool bar buttons are 23 pixels wide; the list rows start at y=86 and are 18 high; the tree's labels sit at x=60
+    let script = "wait 300; click 11 13; click 88 13; click 134 13; click 165 13; click 165 13; \
+                  click 100 86; click 100 122; key down; click 200 66; dblclick 100 104; \
+                  click 65 42; click 41 83; click 60 137; key down; key left; key left; key right; \
+                  click 110 42; click 200 98; click 162 152; click 162 163; close";
+    let out = run_headless_args("common", &["--log"], script);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let want = [
+        "TV expand Computer",
+        "TB 1001", // New
+        "TB 1004", // Cut; the disabled Paste button says nothing
+        "TB 1007 on",
+        "TB 1007 off",
+        "LV select 0 readme.txt",
+        "LV select 2 photo.png",
+        "LV select 3 setup.exe", // the Down key
+        "LV column 1",
+        "LV select 1 notes.txt",
+        "LV open 1",
+        "TAB 1",
+        "TV expand Documents", // the + button opens the item without selecting it
+        "TV select Pictures",
+    ];
+    let got = lines(&out);
+    assert_eq!(&got[..want.len()], want, "{got:?}");
+    // Down moves to Music; Left on a leaf goes to its parent (Computer) and Left again collapses it; Right opens it again
+    let tree: Vec<_> = got.iter().filter(|l| l.starts_with("TV ")).skip(3).cloned().collect();
+    assert_eq!(tree, ["TV select Music", "TV select Computer", "TV collapse Computer", "TV expand Computer"], "{got:?}");
+    assert!(got.contains(&"TAB 2".to_string()), "{got:?}");
+    assert!(got.contains(&"TRACK 45".to_string()), "a click in the track bar's channel pages the thumb: {got:?}");
+    let tail: Vec<_> = got.iter().rev().take(2).rev().cloned().collect();
+    assert_eq!(tail, ["SPIN 6", "SPIN 5"], "the spin arrows step the number: {got:?}");
+}
+
+#[test]
+fn common_controls_answer_their_messages() {
+    need_mingw!();
+    // the last check is a TaskDialog, which the script answers with Enter
+    let out = run_headless("t_comctl", "wait 100; key enter");
+    let got = lines(&out);
+    let failed: Vec<_> = got.iter().filter(|l| l.starts_with("FAIL")).collect();
+    assert!(failed.is_empty(), "{failed:?}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(got.last().map(String::as_str), Some("DONE 0"), "{got:?}");
+    assert!(got.iter().filter(|l| l.starts_with("ok")).count() > 75, "{} checks ran", got.len());
+    assert_eq!(out.status.code(), Some(0));
+}
+
+#[test]
+fn switching_pages_repaints_only_what_changed_and_keeps_the_tool_bar() {
+    need_mingw!();
+    let (before, after) = (shot("common-files"), shot("common-tree"));
+    run_headless("common", &format!("wait 300; snapshot {}; click 65 42; wait 100; snapshot {}; close", before.display(), after.display()));
+    let (a, b) = (Image::read(&before), Image::read(&after));
+    assert!(a.dark_in(0, 0, 180, 26) > 100, "the tool bar draws its icons");
+    assert_eq!(b.differs_in(&a, 0, 0, 520, 26), 0, "the tool bar is untouched by the page switch");
+    assert_eq!(b.differs_in(&a, 0, 336, 330, 360) > 0, true, "the status text changed");
+    assert!(b.differs_in(&a, 10, 60, 500, 300) > 500, "the tree replaced the list");
+}
+
+#[test]
 fn radio_buttons_and_check_boxes_toggle() {
     need_mingw!();
     let (before, after) = (shot("radio-before"), shot("radio-after"));
@@ -657,6 +722,25 @@ fn x11_combo_box_drop_down_opens_as_a_popup_and_selects_with_the_mouse() {
     // the list is a window of its own over the form: its first row is on screen below the combo box
     let img = Image::from_ppm(&ppm);
     assert!(img.dark_in(290, 162, 380, 174) > 15, "the drop-down list is drawn on the screen");
+}
+
+#[test]
+fn x11_common_controls_switch_pages_and_expand_the_tree() {
+    need_x!();
+    if !xdrive_has_xtest() {
+        eprintln!("skipping: needs libXtst for real pointer events");
+        return;
+    }
+    let ppm = work_dir().join("x-common.ppm");
+    // the Tree tab, then the + button beside "Documents"
+    let steps = ["fclick", "65", "42", "sleep", "200", "fclick", "41", "83", "sleep", "200", "rshot", ppm.to_str().unwrap(), "close"];
+    let (code, out) = on_x_with("common", &["--log"], "NLE common controls", &steps).expect("ran");
+    assert_eq!(code, 0);
+    let got: Vec<&str> = out.lines().map(str::trim).collect();
+    assert_eq!(got, ["TV expand Computer", "TAB 1", "TV expand Documents"], "{out}");
+    let img = Image::from_ppm(&ppm);
+    assert!(img.dark_in(0, 0, 180, 26) > 100, "the tool bar is drawn");
+    assert!(img.dark_in(30, 60, 140, 200) > 100, "the tree's labels are drawn");
 }
 
 #[test]

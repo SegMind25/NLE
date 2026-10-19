@@ -376,7 +376,7 @@ fn resolve_import(imp: &Import, deps: &mut HashMap<String, Option<Arc<Module>>>,
     if registry::is_system_dll(&imp.dll) {
         return match &imp.name {
             ImportName::Name { name, .. } => registry::resolve(&imp.dll, name),
-            ImportName::Ordinal(_) => None,
+            ImportName::Ordinal(o) => registry::ordinal_name(&imp.dll, *o as u32).and_then(|n| registry::resolve(&imp.dll, n)),
         };
     }
     let key = imp.dll.to_ascii_lowercase();
