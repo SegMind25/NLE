@@ -3,6 +3,7 @@
 
 use crate::gui::api::{self, send_ansi};
 use crate::gui::backend::Cursor;
+use crate::gui::dialog;
 use crate::gui::gdi::{Object, Target};
 use crate::gui::msg::{self, call_proc, current_ansi, with_ansi, Filter, Next};
 use crate::gui::surface::Rect;
@@ -64,7 +65,7 @@ unsafe fn register_class(p: *const u8, ex: bool, wide: bool) -> u32 {
         icon: rd64(32),
         cursor: rd64(40),
         background: rd64(48),
-        menu_name: if rd64(56) == 0 { None } else if rd64(56) < 0x10000 { None } else { Some(text_arg(rd64(56), wide)) },
+        menu_name: if rd64(56) == 0 { None } else if rd64(56) < 0x10000 { Some(format!("#{}", rd64(56))) } else { Some(text_arg(rd64(56), wide)) },
         unicode: wide,
         native: false,
     };
@@ -451,6 +452,205 @@ unsafe fn load_string_a(inst: usize, id: u32, buf: *mut u8, max: i32) -> i32 {
     std::ptr::copy_nonoverlapping(text.as_ptr(), buf, n);
     *buf.add(n) = 0;
     n as i32
+}
+
+// ---- menus ------------------------------------------------------------------------------------------
+
+use crate::gui::menu::{self as gmenu, Accel, MenuItem};
+
+/// What the string argument of the menu functions means for the item kind in `flags`: text, or bitmap / owner data.
+/// A `MSG` structure from guest memory.
+unsafe fn msg_from_raw(m: *const u8) -> Msg {
+    Msg {
+        hwnd: *(m as *const u64) as usize,
+        message: *(m.add(8) as *const u32),
+        wparam: *(m.add(16) as *const u64) as usize,
+        lparam: *(m.add(24) as *const i64) as isize,
+        time: *(m.add(32) as *const u32),
+        pt: (*(m.add(36) as *const i32), *(m.add(40) as *const i32)),
+    }
+}
+
+unsafe fn menu_item_arg(flags: u32, item: usize, wide: bool) -> (String, usize) {
+    if flags & gmenu::MF_SEPARATOR != 0 {
+        (String::new(), 0)
+    } else if flags & (gmenu::MF_BITMAP | gmenu::MF_OWNERDRAW) != 0 {
+        (String::new(), item)
+    } else {
+        (text_arg(item, wide), 0)
+    }
+}
+
+unsafe fn append_menu(h: usize, flags: u32, id: usize, item: usize, wide: bool) -> BOOL {
+    let (text, data) = menu_item_arg(flags, item, wide);
+    with(|g| g.menu_insert(h, None, flags, id, text, data)) as BOOL
+}
+
+unsafe fn insert_menu(h: usize, pos: u32, flags: u32, id: usize, item: usize, wide: bool) -> BOOL {
+    let (text, data) = menu_item_arg(flags, item, wide);
+    with(|g| {
+        let at = if flags & gmenu::MF_BYPOSITION != 0 {
+            (pos != u32::MAX).then_some(pos as usize)
+        } else {
+            g.menu_find(h, pos as usize, flags).filter(|(m, _)| *m == h).map(|(_, i)| i)
+        };
+        g.menu_insert(h, at, flags, id, text, data)
+    }) as BOOL
+}
+
+unsafe fn modify_menu(h: usize, pos: u32, flags: u32, id: usize, item: usize, wide: bool) -> BOOL {
+    let (text, data) = menu_item_arg(flags, item, wide);
+    with(|g| {
+        let Some((mh, i)) = g.menu_find(h, pos as usize, flags) else { return FALSE };
+        let sub = if flags & gmenu::MF_POPUP != 0 { id } else { 0 };
+        if let Some(it) = g.menus.get_mut(&mh).and_then(|m| m.items.get_mut(i)) {
+            *it = MenuItem { id: if sub != 0 { 0 } else { id }, text, sub, flags: flags & !(gmenu::MF_BYPOSITION | gmenu::MF_BITMAP), data };
+        }
+        TRUE
+    })
+}
+
+fn menu_state_of(it: &MenuItem) -> u32 {
+    (it.flags & (gmenu::MF_GRAYED | gmenu::MF_DISABLED | gmenu::MF_CHECKED | gmenu::MF_DEFAULT | gmenu::MF_MENUBARBREAK | gmenu::MF_MENUBREAK)) | if it.separator() { gmenu::MF_SEPARATOR } else { 0 }
+}
+
+/// MENUITEMINFO (x64, 80 bytes): cbSize, fMask, fType, fState, wID, hSubMenu @24, hbmpChecked, hbmpUnchecked, dwItemData @48,
+/// dwTypeData @56, cch @64, hbmpItem @72.
+unsafe fn item_from_info(info: *const u8, wide: bool, base: Option<&MenuItem>) -> MenuItem {
+    let mask = *(info.add(4) as *const u32);
+    let mut it = base.cloned().unwrap_or_default();
+    if mask & 0x100 != 0 || mask & 0x10 != 0 {
+        let ty = *(info.add(8) as *const u32);
+        it.flags = (it.flags & !(gmenu::MF_SEPARATOR | gmenu::MF_OWNERDRAW | gmenu::MFT_RADIOCHECK | gmenu::MF_MENUBARBREAK | gmenu::MF_MENUBREAK | gmenu::MF_RIGHTJUSTIFY)) | (ty & (gmenu::MF_SEPARATOR | gmenu::MF_OWNERDRAW | gmenu::MFT_RADIOCHECK | gmenu::MF_MENUBARBREAK | gmenu::MF_MENUBREAK | gmenu::MF_RIGHTJUSTIFY));
+    }
+    if mask & 1 != 0 {
+        let st = *(info.add(12) as *const u32);
+        it.flags = (it.flags & !(gmenu::MF_GRAYED | gmenu::MF_DISABLED | gmenu::MF_CHECKED | gmenu::MF_DEFAULT)) | (st & (gmenu::MF_GRAYED | gmenu::MF_DISABLED | gmenu::MF_CHECKED | gmenu::MF_DEFAULT));
+    }
+    if mask & 2 != 0 {
+        it.id = *(info.add(16) as *const u32) as usize;
+    }
+    if mask & 4 != 0 {
+        it.sub = *(info.add(24) as *const u64) as usize;
+        if it.sub != 0 {
+            it.flags |= gmenu::MF_POPUP;
+        } else {
+            it.flags &= !gmenu::MF_POPUP;
+        }
+    }
+    if mask & 0x20 != 0 {
+        it.data = *(info.add(48) as *const u64) as usize;
+    }
+    if mask & (0x40 | 0x10) != 0 && it.flags & (gmenu::MF_SEPARATOR | gmenu::MF_OWNERDRAW) == 0 {
+        let p = *(info.add(56) as *const u64) as usize;
+        if p != 0 {
+            it.text = text_arg(p, wide);
+        }
+    }
+    it
+}
+
+unsafe fn insert_menu_item(h: usize, pos: u32, by_pos: BOOL, info: *const u8, wide: bool) -> BOOL {
+    if info.is_null() {
+        return FALSE;
+    }
+    let it = item_from_info(info, wide, None);
+    with(|g| {
+        let Some(m) = g.menus.get(&h) else { return FALSE };
+        let at = if by_pos != 0 { (pos as usize).min(m.items.len()) } else { g.menu_find(h, pos as usize, 0).filter(|(mh, _)| *mh == h).map_or(m.items.len(), |(_, i)| i) };
+        if let Some(m) = g.menus.get_mut(&h) {
+            m.items.insert(at, it);
+        }
+        TRUE
+    })
+}
+
+unsafe fn set_menu_item_info(h: usize, id: u32, by_pos: BOOL, info: *const u8, wide: bool) -> BOOL {
+    if info.is_null() {
+        return FALSE;
+    }
+    with(|g| {
+        let flags = if by_pos != 0 { gmenu::MF_BYPOSITION } else { 0 };
+        let Some((mh, i)) = g.menu_find(h, id as usize, flags) else { return FALSE };
+        let old = g.menus[&mh].items[i].clone();
+        let new = item_from_info(info, wide, Some(&old));
+        g.menus.get_mut(&mh).unwrap().items[i] = new;
+        TRUE
+    })
+}
+
+unsafe fn get_menu_item_info(h: usize, id: u32, by_pos: BOOL, info: *mut u8, wide: bool) -> BOOL {
+    if info.is_null() {
+        return FALSE;
+    }
+    let found = with(|g| {
+        let flags = if by_pos != 0 { gmenu::MF_BYPOSITION } else { 0 };
+        let (mh, i) = g.menu_find(h, id as usize, flags)?;
+        g.menus.get(&mh)?.items.get(i).cloned()
+    });
+    let Some(it) = found else { return FALSE };
+    let mask = *(info.add(4) as *const u32);
+    if mask & (0x100 | 0x10) != 0 {
+        *(info.add(8) as *mut u32) = it.flags & (gmenu::MF_SEPARATOR | gmenu::MF_OWNERDRAW | gmenu::MFT_RADIOCHECK | gmenu::MF_MENUBARBREAK | gmenu::MF_MENUBREAK | gmenu::MF_RIGHTJUSTIFY);
+    }
+    if mask & 1 != 0 {
+        *(info.add(12) as *mut u32) = it.flags & (gmenu::MF_GRAYED | gmenu::MF_DISABLED | gmenu::MF_CHECKED | gmenu::MF_DEFAULT);
+    }
+    if mask & 2 != 0 {
+        *(info.add(16) as *mut u32) = it.id as u32;
+    }
+    if mask & 4 != 0 {
+        *(info.add(24) as *mut u64) = it.sub as u64;
+    }
+    if mask & 0x20 != 0 {
+        *(info.add(48) as *mut u64) = it.data as u64;
+    }
+    if mask & (0x40 | 0x10) != 0 {
+        let buf = *(info.add(56) as *const u64) as usize;
+        let cch = *(info.add(64) as *const u32);
+        if buf == 0 {
+            *(info.add(64) as *mut u32) = it.text.chars().count() as u32;
+        } else if wide {
+            *(info.add(64) as *mut u32) = return_w(buf as *mut u16, cch, &it.text);
+        } else {
+            *(info.add(64) as *mut u32) = return_a(buf as *mut u8, cch, &it.text);
+        }
+    }
+    TRUE
+}
+
+/// `TranslateAccelerator`: a key message that matches the table becomes a `WM_COMMAND` (with the accelerator flag).
+unsafe fn translate_accelerator(hwnd: usize, table: usize, m: *const u8) -> i32 {
+    if m.is_null() {
+        return 0;
+    }
+    let (message, wparam, lparam) = (*(m.add(8) as *const u32), *(m.add(16) as *const u64) as usize, *(m.add(24) as *const i64) as isize);
+    match with(|g| g.accel_lookup(table, message, wparam, lparam)) {
+        Some(cmd) => {
+            api::send(hwnd, gui::WM_COMMAND, cmd as usize | (1 << 16), 0);
+            1
+        }
+        None => 0,
+    }
+}
+
+unsafe fn accel_table_from(p: *const u8, count: i32) -> usize {
+    let mut v = Vec::new();
+    for i in 0..count.max(0) as usize {
+        let e = p.add(i * 6);
+        v.push(Accel { flags: *e, key: *(e.add(2) as *const u16), cmd: *(e.add(4) as *const u16) });
+    }
+    with(|g| g.accel_create(v))
+}
+
+unsafe fn load_menu(inst: usize, name: usize, wide: bool) -> usize {
+    let key = crate::gui::res::Key::from_arg(name, wide);
+    with(|g| g.menu_from_resource(inst, &key)).unwrap_or(0)
+}
+
+unsafe fn load_accelerators(inst: usize, name: usize, wide: bool) -> usize {
+    let key = crate::gui::res::Key::from_arg(name, wide);
+    with(|g| g.accel_from_resource(inst, &key)).unwrap_or(0)
 }
 
 // ---- metrics ------------------------------------------------------------------------------------------
@@ -1034,9 +1234,6 @@ crate::shims! { "user32" => USER32_SHIMS;
     fn SetThreadDpiAwarenessContext(_c: usize) -> usize {
         0
     }
-    fn EnableMenuItem(_m: usize, _id: u32, _flags: u32) -> BOOL {
-        0
-    }
 
     // ---- messages ----
     fn GetMessageA(out: *mut u8, hwnd: usize, min: u32, max: u32) -> i32 {
@@ -1159,18 +1356,6 @@ crate::shims! { "user32" => USER32_SHIMS;
     }
     fn RegisterWindowMessageW(name: usize) -> u32 {
         register_message(&text_arg(name, true))
-    }
-    fn IsDialogMessageA(_dlg: usize, _m: *mut u8) -> BOOL {
-        FALSE
-    }
-    fn IsDialogMessageW(_dlg: usize, _m: *mut u8) -> BOOL {
-        FALSE
-    }
-    fn TranslateAcceleratorA(_h: usize, _accel: usize, _m: *mut u8) -> i32 {
-        0
-    }
-    fn TranslateAcceleratorW(_h: usize, _accel: usize, _m: *mut u8) -> i32 {
-        0
     }
 
     // ---- input ----
@@ -1547,6 +1732,375 @@ crate::shims! { "user32" => USER32_SHIMS;
         with(|g| g.draw_icon(hdc, x, y, icon, w, h)) as BOOL
     }
 
+    // ---- menus ----
+    fn CreateMenu() -> usize {
+        with(|g| g.menu_create(false))
+    }
+    fn CreatePopupMenu() -> usize {
+        with(|g| g.menu_create(true))
+    }
+    fn DestroyMenu(m: usize) -> BOOL {
+        with(|g| g.menu_destroy(m)) as BOOL
+    }
+    fn IsMenu(m: usize) -> BOOL {
+        with(|g| g.menus.contains_key(&m)) as BOOL
+    }
+    fn AppendMenuA(m: usize, flags: u32, id: usize, item: usize) -> BOOL {
+        append_menu(m, flags, id, item, false)
+    }
+    fn AppendMenuW(m: usize, flags: u32, id: usize, item: usize) -> BOOL {
+        append_menu(m, flags, id, item, true)
+    }
+    fn InsertMenuA(m: usize, pos: u32, flags: u32, id: usize, item: usize) -> BOOL {
+        insert_menu(m, pos, flags, id, item, false)
+    }
+    fn InsertMenuW(m: usize, pos: u32, flags: u32, id: usize, item: usize) -> BOOL {
+        insert_menu(m, pos, flags, id, item, true)
+    }
+    fn ModifyMenuA(m: usize, pos: u32, flags: u32, id: usize, item: usize) -> BOOL {
+        modify_menu(m, pos, flags, id, item, false)
+    }
+    fn ModifyMenuW(m: usize, pos: u32, flags: u32, id: usize, item: usize) -> BOOL {
+        modify_menu(m, pos, flags, id, item, true)
+    }
+    fn DeleteMenu(m: usize, pos: u32, flags: u32) -> BOOL {
+        with(|g| g.menu_remove(m, pos as usize, flags, true)) as BOOL
+    }
+    fn RemoveMenu(m: usize, pos: u32, flags: u32) -> BOOL {
+        with(|g| g.menu_remove(m, pos as usize, flags, false)) as BOOL
+    }
+    fn GetSubMenu(m: usize, pos: i32) -> usize {
+        with(|g| g.menus.get(&m).and_then(|mm| mm.items.get(pos as usize)).filter(|it| it.is_popup()).map_or(0, |it| it.sub))
+    }
+    fn GetMenuItemCount(m: usize) -> i32 {
+        with(|g| g.menus.get(&m).map_or(-1, |mm| mm.items.len() as i32))
+    }
+    fn GetMenuItemID(m: usize, pos: i32) -> u32 {
+        with(|g| match g.menus.get(&m).and_then(|mm| mm.items.get(pos as usize)) {
+            Some(it) if it.is_popup() => u32::MAX,
+            Some(it) => it.id as u32,
+            None => u32::MAX,
+        })
+    }
+    fn GetMenuStringA(m: usize, id: u32, buf: *mut u8, max: i32, flags: u32) -> i32 {
+        let text = with(|g| g.menu_find(m, id as usize, flags).and_then(|(mh, i)| g.menus.get(&mh)?.items.get(i).map(|it| it.text.clone())));
+        match text {
+            Some(t) if buf.is_null() || max <= 0 => t.len() as i32,
+            Some(t) => return_a(buf, max as u32, &t) as i32,
+            None => 0,
+        }
+    }
+    fn GetMenuStringW(m: usize, id: u32, buf: *mut u16, max: i32, flags: u32) -> i32 {
+        let text = with(|g| g.menu_find(m, id as usize, flags).and_then(|(mh, i)| g.menus.get(&mh)?.items.get(i).map(|it| it.text.clone())));
+        match text {
+            Some(t) if buf.is_null() || max <= 0 => t.encode_utf16().count() as i32,
+            Some(t) => return_w(buf, max as u32, &t) as i32,
+            None => 0,
+        }
+    }
+    fn GetMenuState(m: usize, id: u32, flags: u32) -> u32 {
+        with(|g| match g.menu_find(m, id as usize, flags).and_then(|(mh, i)| g.menus.get(&mh)?.items.get(i).cloned()) {
+            Some(it) if it.is_popup() => (menu_state_of(&it) & 0xff) | ((g.menus.get(&it.sub).map_or(0, |s| s.items.len() as u32) & 0xff) << 8),
+            Some(it) => menu_state_of(&it),
+            None => u32::MAX,
+        })
+    }
+    fn CheckMenuItem(m: usize, id: u32, flags: u32) -> u32 {
+        with(|g| match g.menu_item_mut(m, id as usize, flags) {
+            Some(it) => {
+                let was = it.flags & gmenu::MF_CHECKED;
+                it.flags = (it.flags & !gmenu::MF_CHECKED) | (flags & gmenu::MF_CHECKED);
+                was
+            }
+            None => u32::MAX,
+        })
+    }
+    fn CheckMenuRadioItem(m: usize, first: u32, last: u32, check: u32, flags: u32) -> BOOL {
+        with(|g| {
+            let Some(menu) = g.menus.get_mut(&m) else { return FALSE };
+            let by_pos = flags & gmenu::MF_BYPOSITION != 0;
+            for (i, it) in menu.items.iter_mut().enumerate() {
+                let key = if by_pos { i as u32 } else { it.id as u32 };
+                if key >= first && key <= last {
+                    if key == check {
+                        it.flags |= gmenu::MF_CHECKED | gmenu::MFT_RADIOCHECK;
+                    } else {
+                        it.flags &= !gmenu::MF_CHECKED;
+                    }
+                }
+            }
+            TRUE
+        })
+    }
+    fn EnableMenuItem(m: usize, id: u32, flags: u32) -> u32 {
+        with(|g| match g.menu_item_mut(m, id as usize, flags) {
+            Some(it) => {
+                let was = it.flags & (gmenu::MF_GRAYED | gmenu::MF_DISABLED);
+                it.flags = (it.flags & !(gmenu::MF_GRAYED | gmenu::MF_DISABLED)) | (flags & (gmenu::MF_GRAYED | gmenu::MF_DISABLED));
+                was
+            }
+            None => u32::MAX,
+        })
+    }
+    fn SetMenuDefaultItem(m: usize, id: u32, by_pos: u32) -> BOOL {
+        with(|g| {
+            let flags = if by_pos != 0 { gmenu::MF_BYPOSITION } else { 0 };
+            if let Some(menu) = g.menus.get_mut(&m) {
+                for it in &mut menu.items {
+                    it.flags &= !gmenu::MF_DEFAULT;
+                }
+            }
+            match g.menu_item_mut(m, id as usize, flags) {
+                Some(it) => {
+                    it.flags |= gmenu::MF_DEFAULT;
+                    TRUE
+                }
+                None => FALSE,
+            }
+        })
+    }
+    fn GetMenuDefaultItem(m: usize, by_pos: u32, _flags: u32) -> u32 {
+        with(|g| match g.menus.get(&m).and_then(|mm| mm.items.iter().position(|it| it.flags & gmenu::MF_DEFAULT != 0).map(|i| (i, mm.items[i].id))) {
+            Some((i, id)) => (if by_pos != 0 { i } else { id }) as u32,
+            None => u32::MAX,
+        })
+    }
+    fn InsertMenuItemA(m: usize, pos: u32, by_pos: BOOL, info: *const u8) -> BOOL {
+        insert_menu_item(m, pos, by_pos, info, false)
+    }
+    fn InsertMenuItemW(m: usize, pos: u32, by_pos: BOOL, info: *const u8) -> BOOL {
+        insert_menu_item(m, pos, by_pos, info, true)
+    }
+    fn SetMenuItemInfoA(m: usize, id: u32, by_pos: BOOL, info: *const u8) -> BOOL {
+        set_menu_item_info(m, id, by_pos, info, false)
+    }
+    fn SetMenuItemInfoW(m: usize, id: u32, by_pos: BOOL, info: *const u8) -> BOOL {
+        set_menu_item_info(m, id, by_pos, info, true)
+    }
+    fn GetMenuItemInfoA(m: usize, id: u32, by_pos: BOOL, info: *mut u8) -> BOOL {
+        get_menu_item_info(m, id, by_pos, info, false)
+    }
+    fn GetMenuItemInfoW(m: usize, id: u32, by_pos: BOOL, info: *mut u8) -> BOOL {
+        get_menu_item_info(m, id, by_pos, info, true)
+    }
+    fn SetMenuInfo(_m: usize, _info: *const u8) -> BOOL {
+        TRUE
+    }
+    fn GetMenuInfo(_m: usize, _info: *mut u8) -> BOOL {
+        TRUE
+    }
+    fn SetMenuItemBitmaps(_m: usize, _id: u32, _flags: u32, _unchecked: usize, _checked: usize) -> BOOL {
+        TRUE
+    }
+    fn GetMenuCheckMarkDimensions() -> i32 {
+        0x000F_000F
+    }
+    fn HiliteMenuItem(_h: usize, _m: usize, _id: u32, _flags: u32) -> BOOL {
+        TRUE
+    }
+    fn MenuItemFromPoint(_h: usize, _m: usize, _x: i32, _y: i32) -> i32 {
+        -1
+    }
+    fn LoadMenuA(inst: usize, name: usize) -> usize {
+        load_menu(inst, name, false)
+    }
+    fn LoadMenuW(inst: usize, name: usize) -> usize {
+        load_menu(inst, name, true)
+    }
+    fn LoadMenuIndirectA(template: *const u8) -> usize {
+        // the template runs until its last item; 64 KiB is far more than any menu needs
+        let data = std::slice::from_raw_parts(template, 0x10000);
+        with(|g| g.menu_from_template(data)).unwrap_or(0)
+    }
+    fn LoadMenuIndirectW(template: *const u8) -> usize {
+        let data = std::slice::from_raw_parts(template, 0x10000);
+        with(|g| g.menu_from_template(data)).unwrap_or(0)
+    }
+    fn SetMenu(h: usize, m: usize) -> BOOL {
+        api::set_menu(h, m) as BOOL
+    }
+    fn GetMenu(h: usize) -> usize {
+        with(|g| g.windows.get(&h).map_or(0, |w| w.menu))
+    }
+    fn DrawMenuBar(h: usize) -> BOOL {
+        with(|g| {
+            g.paint_nc(h);
+            g.flush();
+        });
+        TRUE
+    }
+    fn GetSystemMenu(h: usize, revert: BOOL) -> usize {
+        // the system menu belongs to the window manager here; programs may still add to this one
+        if revert != 0 {
+            return 0;
+        }
+        with(|g| {
+            if let Some(m) = g.windows.get(&h).and_then(|w| w.props.get("__nle_sysmenu").copied()) {
+                return m;
+            }
+            let m = g.menu_create(true);
+            if let Some(w) = g.windows.get_mut(&h) {
+                w.props.insert("__nle_sysmenu".into(), m);
+            }
+            m
+        })
+    }
+    fn TrackPopupMenu(m: usize, flags: u32, x: i32, y: i32, _reserved: i32, h: usize, _rect: usize) -> BOOL {
+        gmenu::track_popup(h, m, flags, x, y)
+    }
+    fn TrackPopupMenuEx(m: usize, flags: u32, x: i32, y: i32, h: usize, _params: usize) -> BOOL {
+        gmenu::track_popup(h, m, flags, x, y)
+    }
+    fn LoadAcceleratorsA(inst: usize, name: usize) -> usize {
+        load_accelerators(inst, name, false)
+    }
+    fn LoadAcceleratorsW(inst: usize, name: usize) -> usize {
+        load_accelerators(inst, name, true)
+    }
+    fn CreateAcceleratorTableA(p: *const u8, count: i32) -> usize {
+        accel_table_from(p, count)
+    }
+    fn CreateAcceleratorTableW(p: *const u8, count: i32) -> usize {
+        accel_table_from(p, count)
+    }
+    fn DestroyAcceleratorTable(t: usize) -> BOOL {
+        with(|g| g.accels.remove(&t).is_some()) as BOOL
+    }
+    fn CopyAcceleratorTableA(t: usize, out: *mut u8, count: i32) -> i32 {
+        with(|g| {
+            let Some(table) = g.accels.get(&t) else { return 0 };
+            if out.is_null() {
+                return table.len() as i32;
+            }
+            for (i, a) in table.iter().take(count.max(0) as usize).enumerate() {
+                let e = out.add(i * 6);
+                *e = a.flags;
+                *(e.add(2) as *mut u16) = a.key;
+                *(e.add(4) as *mut u16) = a.cmd;
+            }
+            table.len().min(count.max(0) as usize) as i32
+        })
+    }
+    fn CopyAcceleratorTableW(t: usize, out: *mut u8, count: i32) -> i32 {
+        CopyAcceleratorTableA(t, out, count)
+    }
+    fn TranslateAcceleratorA(h: usize, t: usize, m: *const u8) -> i32 {
+        translate_accelerator(h, t, m)
+    }
+    fn TranslateAcceleratorW(h: usize, t: usize, m: *const u8) -> i32 {
+        translate_accelerator(h, t, m)
+    }
+
+    // ---- dialogs ----
+    fn DialogBoxParamA(inst: usize, name: usize, parent: usize, proc_: usize, param: isize) -> isize {
+        dialog::dialog_box_resource(inst, name, parent, proc_, param, false)
+    }
+    fn DialogBoxParamW(inst: usize, name: usize, parent: usize, proc_: usize, param: isize) -> isize {
+        dialog::dialog_box_resource(inst, name, parent, proc_, param, true)
+    }
+    fn DialogBoxIndirectParamA(inst: usize, template: *const u8, parent: usize, proc_: usize, param: isize) -> isize {
+        dialog::dialog_box_indirect(inst, template, parent, proc_, param, false)
+    }
+    fn DialogBoxIndirectParamW(inst: usize, template: *const u8, parent: usize, proc_: usize, param: isize) -> isize {
+        dialog::dialog_box_indirect(inst, template, parent, proc_, param, true)
+    }
+    fn CreateDialogParamA(inst: usize, name: usize, parent: usize, proc_: usize, param: isize) -> usize {
+        dialog::create_dialog_resource(inst, name, parent, proc_, param, false)
+    }
+    fn CreateDialogParamW(inst: usize, name: usize, parent: usize, proc_: usize, param: isize) -> usize {
+        dialog::create_dialog_resource(inst, name, parent, proc_, param, true)
+    }
+    fn CreateDialogIndirectParamA(inst: usize, template: *const u8, parent: usize, proc_: usize, param: isize) -> usize {
+        dialog::create_dialog_indirect(inst, template, parent, proc_, param, false)
+    }
+    fn CreateDialogIndirectParamW(inst: usize, template: *const u8, parent: usize, proc_: usize, param: isize) -> usize {
+        dialog::create_dialog_indirect(inst, template, parent, proc_, param, true)
+    }
+    fn EndDialog(dlg: usize, result: isize) -> BOOL {
+        dialog::end_dialog(dlg, result) as BOOL
+    }
+    fn DefDlgProcA(h: usize, msg: u32, wp: usize, lp: isize) -> isize {
+        with_ansi(true, || dialog::def_dlg_proc(h, msg, wp, lp))
+    }
+    fn DefDlgProcW(h: usize, msg: u32, wp: usize, lp: isize) -> isize {
+        with_ansi(false, || dialog::def_dlg_proc(h, msg, wp, lp))
+    }
+    fn IsDialogMessageA(dlg: usize, m: *const u8) -> BOOL {
+        if m.is_null() {
+            return FALSE;
+        }
+        dialog::is_dialog_message(dlg, &msg_from_raw(m)) as BOOL
+    }
+    fn IsDialogMessageW(dlg: usize, m: *const u8) -> BOOL {
+        if m.is_null() {
+            return FALSE;
+        }
+        dialog::is_dialog_message(dlg, &msg_from_raw(m)) as BOOL
+    }
+    fn CheckRadioButton(dlg: usize, first: i32, last: i32, check: i32) -> BOOL {
+        for id in first..=last {
+            let h = GetDlgItem(dlg, id);
+            if h != 0 {
+                api::send(h, 0x00F1, (id == check) as usize, 0);
+            }
+        }
+        TRUE
+    }
+    fn GetDlgItemInt(dlg: usize, id: i32, translated: *mut BOOL, signed: BOOL) -> u32 {
+        let h = GetDlgItem(dlg, id);
+        let text = if h == 0 { String::new() } else { with(|g| g.windows.get(&h).map(|w| w.text.trim().to_string()).unwrap_or_default()) };
+        let parsed = if signed != 0 { text.parse::<i32>().ok().map(|v| v as u32) } else { text.parse::<u32>().ok() };
+        if !translated.is_null() {
+            *translated = parsed.is_some() as BOOL;
+        }
+        parsed.unwrap_or(0)
+    }
+    fn SetDlgItemInt(dlg: usize, id: i32, value: u32, signed: BOOL) -> BOOL {
+        let h = GetDlgItem(dlg, id);
+        if h == 0 {
+            return FALSE;
+        }
+        let text = if signed != 0 { (value as i32).to_string() } else { value.to_string() };
+        let w = to_wide_nul(&text);
+        send_ansi(h, gui::WM_SETTEXT, 0, w.as_ptr() as isize, false);
+        TRUE
+    }
+    fn MapDialogRect(dlg: usize, r: *mut i32) -> BOOL {
+        if r.is_null() {
+            return FALSE;
+        }
+        let (bx, by) = with(|g| {
+            let font = g.windows.get(&dlg).map_or(0, |w| w.font);
+            g.base_units(if font != 0 { font } else { g.stock_object(17) })
+        });
+        *r = dialog::units_to_px(*r, bx, 4);
+        *r.add(1) = dialog::units_to_px(*r.add(1), by, 8);
+        *r.add(2) = dialog::units_to_px(*r.add(2), bx, 4);
+        *r.add(3) = dialog::units_to_px(*r.add(3), by, 8);
+        TRUE
+    }
+    fn GetDialogBaseUnits() -> i32 {
+        let (bx, by) = with(|g| g.base_units(g.stock_object(17)));
+        (bx & 0xffff) | (by << 16)
+    }
+    fn GetNextDlgTabItem(dlg: usize, ctl: usize, prev: BOOL) -> usize {
+        with(|g| dialog::next_tab(g, dlg, ctl, prev != 0))
+    }
+    fn GetNextDlgGroupItem(dlg: usize, ctl: usize, prev: BOOL) -> usize {
+        with(|g| {
+            let kids = g.windows.get(&dlg).map(|w| w.children.clone()).unwrap_or_default();
+            let Some(pos) = kids.iter().position(|k| *k == ctl) else { return kids.first().copied().unwrap_or(0) };
+            let n = kids.len();
+            for step in 1..=n {
+                let i = if prev != 0 { (pos + n - step % n) % n } else { (pos + step) % n };
+                if g.windows.get(&kids[i]).is_some_and(|w| w.visible_flag() && w.style & WS_DISABLED == 0) {
+                    return kids[i];
+                }
+            }
+            0
+        })
+    }
+
     // ---- scroll bars ----
     fn SetScrollInfo(h: usize, bar: i32, info: *const u8, redraw: BOOL) -> i32 {
         api::set_scroll_info(h, bar, info, redraw != 0)
@@ -1702,51 +2256,6 @@ crate::shims! { "user32" => USER32_SHIMS;
     }
 
     // ---- menus (structure only; there is no menu bar yet) ----
-    fn CreateMenu() -> usize {
-        with(|g| g.add_object(Object::Stub(0x4D45)))
-    }
-    fn CreatePopupMenu() -> usize {
-        with(|g| g.add_object(Object::Stub(0x4D45)))
-    }
-    fn DestroyMenu(m: usize) -> BOOL {
-        with(|g| g.objects.remove(&m).is_some()) as BOOL
-    }
-    fn AppendMenuA(_m: usize, _flags: u32, _id: usize, _item: usize) -> BOOL {
-        TRUE
-    }
-    fn AppendMenuW(_m: usize, _flags: u32, _id: usize, _item: usize) -> BOOL {
-        TRUE
-    }
-    fn InsertMenuA(_m: usize, _pos: u32, _flags: u32, _id: usize, _item: usize) -> BOOL {
-        TRUE
-    }
-    fn InsertMenuW(_m: usize, _pos: u32, _flags: u32, _id: usize, _item: usize) -> BOOL {
-        TRUE
-    }
-    fn SetMenu(_h: usize, _m: usize) -> BOOL {
-        TRUE
-    }
-    fn GetMenu(_h: usize) -> usize {
-        0
-    }
-    fn GetSubMenu(_m: usize, _pos: i32) -> usize {
-        0
-    }
-    fn GetMenuItemCount(_m: usize) -> i32 {
-        0
-    }
-    fn DrawMenuBar(_h: usize) -> BOOL {
-        TRUE
-    }
-    fn CheckMenuItem(_m: usize, _id: u32, _flags: u32) -> u32 {
-        0
-    }
-    fn TrackPopupMenu(_m: usize, _flags: u32, _x: i32, _y: i32, _r: i32, _h: usize, _rect: usize) -> BOOL {
-        0
-    }
-    fn TrackPopupMenuEx(_m: usize, _flags: u32, _x: i32, _y: i32, _h: usize, _p: usize) -> BOOL {
-        0
-    }
 }
 
 /// Window properties live beside the library's own bookkeeping, under a prefix that cannot clash.

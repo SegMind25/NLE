@@ -151,6 +151,29 @@ impl Gui {
         let now = self.tick();
         for ev in events {
             let ev = self.localize(ev);
+            if self.menu_mode.is_some() {
+                match &ev {
+                    Event::Button { win, x, y, .. } | Event::Motion { win, x, y } => {
+                        let top = self.resolve_native(*win);
+                        let (bx, by) = self.top_client_screen(top);
+                        let (sx, sy) = (bx + x, by + y);
+                        self.pointer = (sx, sy);
+                        if self.menu_mouse(&ev, sx, sy, top, &mut out) {
+                            continue;
+                        }
+                    }
+                    Event::Key { down, vk, ch, .. } => {
+                        let (down, vk, ch) = (*down, *vk, *ch);
+                        self.set_key(vk, down);
+                        if !down || self.menu_key(vk, ch, &mut out) {
+                            continue;
+                        }
+                    }
+                    Event::Wheel { .. } => continue,
+                    Event::Focus { gained: false, .. } => self.menu_end(None),
+                    _ => {}
+                }
+            }
             match ev {
                 Event::Expose { win, rect } => {
                     let h = self.resolve_native(win);
@@ -203,6 +226,13 @@ impl Gui {
                     }
                     let was_down = self.keys[(vk & 0xff) as usize] & 0x80 != 0;
                     self.set_key(vk, down);
+                    if matches!(vk, 0x12 | 0xA4 | 0xA5) {
+                        if down && !was_down {
+                            self.alt_alone = true;
+                        }
+                    } else if down {
+                        self.alt_alone = false;
+                    }
                     let alt = self.keys[0x12] & 0x80 != 0 && self.keys[0x11] & 0x80 == 0;
                     let sys = alt || vk == 0x12 || vk == 0x79;
                     let message = match (down, sys) {
@@ -211,7 +241,11 @@ impl Gui {
                         (false, false) => WM_KEYUP,
                         (false, true) => WM_SYSKEYUP,
                     };
-                    let lparam = 1 | (scan as isize & 0xff) << 16 | (ext as isize) << 24 | (alt as isize) << 29 | ((was_down || repeat) as isize) << 30 | (!down as isize) << 31;
+                    // bits 25 and 26 are reserved in a key message's lParam; they carry Shift and Ctrl as they were
+                    // when the key went down, so accelerators see the state of that moment
+                    let shift = self.keys[0x10] & 0x80 != 0;
+                    let ctrl = self.keys[0x11] & 0x80 != 0;
+                    let lparam = 1 | (scan as isize & 0xff) << 16 | (ext as isize) << 24 | (shift as isize) << 25 | (ctrl as isize) << 26 | (alt as isize) << 29 | ((was_down || repeat) as isize) << 30 | (!down as isize) << 31;
                     if down {
                         if let Some(c) = ch {
                             if (c as u32) < 0x10000 {
@@ -443,6 +477,7 @@ pub struct Out {
     pub activate: Option<usize>,
     pub deactivate: Option<usize>,
     pub exit: Option<i32>,
+    pub menu_ops: Vec<super::menu::MenuOp>,
 }
 
 fn drain_wake(fd: i32) {
@@ -456,6 +491,9 @@ fn drain_wake(fd: i32) {
 pub unsafe fn finish(out: Out) {
     for m in out.sends {
         super::api::send(m.hwnd, m.message, m.wparam, m.lparam);
+    }
+    for op in out.menu_ops {
+        with(|g| g.menu_apply(op));
     }
     if let Some(t) = out.activate {
         super::api::activate_window(t);
@@ -754,6 +792,26 @@ pub unsafe fn def_window_proc(hwnd: usize, msg: u32, wp: usize, lp: isize, ansi:
                 0
             }
         }
+        WM_SYSKEYDOWN => {
+            if wp == 0x79 {
+                api::send(hwnd, WM_SYSCOMMAND, super::menu::SC_KEYMENU, 0);
+            } else if wp == 0x73 && lp & (1 << 29) != 0 {
+                api::send(hwnd, WM_SYSCOMMAND, 0xF060, 0);
+            }
+            0
+        }
+        WM_SYSKEYUP => {
+            if matches!(wp, 0x12 | 0xA4 | 0xA5) && with(|g| std::mem::take(&mut g.alt_alone)) {
+                api::send(hwnd, WM_SYSCOMMAND, super::menu::SC_KEYMENU, 0);
+            }
+            0
+        }
+        WM_SYSCHAR => {
+            if wp != 0x20 {
+                api::send(hwnd, WM_SYSCOMMAND, super::menu::SC_KEYMENU, wp as isize);
+            }
+            0
+        }
         WM_TIMER if wp == super::nc::SB_REPEAT_TIMER => {
             let out = with(|g| g.nc_repeat(hwnd));
             finish(out);
@@ -776,6 +834,7 @@ pub unsafe fn def_window_proc(hwnd: usize, msg: u32, wp: usize, lp: isize, ansi:
                 0xF120 => {
                     api::show_window(hwnd, SW_RESTORE);
                 }
+                0xF100 => super::menu::key_start(hwnd, char::from_u32(lp as u32).filter(|_| lp != 0)),
                 _ => {}
             }
             0

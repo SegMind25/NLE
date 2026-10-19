@@ -17,9 +17,11 @@ pub mod backend;
 pub mod controls;
 pub mod ctl_combo;
 pub mod ctl_list;
+pub mod dialog;
 pub mod font;
 pub mod gdi;
 pub mod headless;
+pub mod menu;
 pub mod msg;
 pub mod msgbox;
 pub mod nc;
@@ -190,6 +192,17 @@ pub struct Gui {
     pub sb_drag: Option<nc::SbDrag>,
     /// The window under the pointer, and the windows that asked to be told when it leaves them.
     pub hover: usize,
+    pub menus: HashMap<usize, menu::Menu>,
+    pub accels: HashMap<usize, Vec<menu::Accel>>,
+    /// Set while a menu is open: what is being tracked.
+    pub menu_mode: Option<menu::MenuMode>,
+    /// The command a `TrackPopupMenu(TPM_RETURNCMD)` call is waiting for, and whether tracking has ended.
+    pub menu_result: Option<usize>,
+    pub menu_done: bool,
+    /// Alt went down and nothing else has happened since, so releasing it activates the menu bar.
+    pub alt_alone: bool,
+    /// Results of `EndDialog` that their modal loops have not collected yet.
+    pub dialog_results: HashMap<usize, isize>,
 }
 
 impl Gui {
@@ -219,10 +232,18 @@ impl Gui {
             desktop: 0,
             sb_drag: None,
             hover: 0,
+            menus: HashMap::new(),
+            accels: HashMap::new(),
+            menu_mode: None,
+            menu_result: None,
+            menu_done: false,
+            alt_alone: false,
+            dialog_results: HashMap::new(),
         };
         g.desktop = g.alloc_handle();
         gdi::init_stock(&mut g);
         controls::register_builtin_classes(&mut g);
+        dialog::register_class(&mut g);
         g
     }
 

@@ -410,9 +410,8 @@ impl Gui {
         let w = if a.w == CW_USEDEFAULT { if is_child { 100 } else { default_size.0 } } else { a.w };
         let h = if a.h == CW_USEDEFAULT { if is_child { 30 } else { default_size.1 } } else { a.h };
         let hwnd = self.alloc_handle();
-        let has_menu = false;
+        let menu = if !is_child && self.menus.contains_key(&a.menu) { a.menu } else { 0 };
         let style = a.style & !WS_VISIBLE;
-        let _ = has_menu;
         let frame = frame_inset(style, a.ex_style);
         let (cw, ch) = ((w - frame.l - frame.r).max(1), (h - frame.t - frame.b).max(1));
         let mut wnd = Wnd {
@@ -435,7 +434,7 @@ impl Gui {
             surface: None,
             update: Rect::default(),
             erase: false,
-            menu: 0,
+            menu,
             font: 0,
             props: HashMap::new(),
             ctl: Ctl::default(),
@@ -505,6 +504,12 @@ impl Gui {
             if let Some(b) = &self.backend {
                 b.destroy_window(w.native);
             }
+        }
+        if w.menu != 0 {
+            self.menu_destroy(w.menu);
+        }
+        if self.menu_mode.as_ref().is_some_and(|m| m.bar == h || m.owner == h) {
+            self.menu_mode = None;
         }
         if self.focus == h {
             self.focus = 0;

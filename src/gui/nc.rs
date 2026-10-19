@@ -158,8 +158,10 @@ impl Gui {
         }
     }
 
-    /// The menu bar of a top-level window (filled in with the menus).
-    pub fn paint_menu_bar(&mut self, _h: usize) {}
+    /// The menu bar of a top-level window.
+    pub fn paint_menu_bar(&mut self, h: usize) {
+        self.menu_paint_bar(h);
+    }
 
     /// Scroll bar information as `SetScrollInfo` sets it. Returns the new position and whether showing or hiding the
     /// bar changed the client area.
@@ -217,6 +219,19 @@ impl Gui {
         if let Some(d) = self.sb_drag {
             if !down && button == 1 {
                 self.sb_finish(d, out);
+            }
+            return true;
+        }
+        if self.nc_hit(h, lx, ly) == Nc::Menu {
+            if down && button == 1 && self.menu_mode.is_none() {
+                if let Some(i) = self.bar_item_at(h, lx, ly + MENU_H) {
+                    let menu = self.windows.get(&h).map_or(0, |w| w.menu);
+                    let time = self.tick();
+                    self.menu_begin(h, h, false, false, false);
+                    out.sends.push(Msg { hwnd: h, message: super::menu::WM_ENTERMENULOOP, wparam: 0, lparam: 0, time, pt: self.pointer });
+                    out.sends.push(Msg { hwnd: h, message: super::menu::WM_INITMENU, wparam: menu, lparam: 0, time, pt: self.pointer });
+                    self.open_bar_item_pub(h, i as i32, out);
+                }
             }
             return true;
         }

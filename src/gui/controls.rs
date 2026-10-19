@@ -5,7 +5,7 @@
 //! `DefWindowProc` / `CallWindowProc` on them exactly as on Windows.
 
 use super::api;
-use super::gdi::sys_color;
+use super::gdi::{sys_color, Object};
 use super::msg::{current_ansi, def_window_proc};
 use super::surface::*;
 use super::wm::Class;
@@ -116,7 +116,8 @@ const EDGE_OFF: u32 = 0xBFBFBF;
 const TEXT_OFF: u32 = 0x838383;
 
 pub fn register_builtin_classes(g: &mut Gui) {
-    let classes: [(&str, usize, u32); 6] = [
+    let classes: [(&str, usize, u32); 7] = [
+        ("#32768", super::menu::menu_popup_proc as *const () as usize, 0),
         ("BUTTON", button_proc as *const () as usize, 0x8),
         ("STATIC", static_proc as *const () as usize, 0),
         ("EDIT", edit_proc as *const () as usize, 0x8),
@@ -222,6 +223,14 @@ unsafe fn button_click(h: usize) {
                 if radio {
                     if let Some(Ctl::Button(b)) = g.windows.get_mut(s).map(|w| &mut w.ctl) {
                         b.check = (*s == h) as u32;
+                    }
+                    // the chosen radio button of a group is its tab stop
+                    if let Some(w) = g.windows.get_mut(s) {
+                        if *s == h {
+                            w.style |= WS_TABSTOP;
+                        } else {
+                            w.style &= !WS_TABSTOP;
+                        }
                     }
                     g.invalidate(*s, None, true);
                 }
@@ -390,6 +399,13 @@ unsafe fn paint_button(h: usize) {
 
 pub unsafe extern "win64" fn button_proc(h: usize, msg: u32, wp: usize, lp: isize) -> isize {
     match msg {
+        WM_GETDLGCODE => match with(|g| g.windows.get(&h).map_or(0, |w| w.style & BS_TYPEMASK)) {
+            0 => 0x2020,                // DLGC_BUTTON | DLGC_UNDEFPUSHBUTTON
+            BS_DEFPUSHBUTTON => 0x2010, // DLGC_BUTTON | DLGC_DEFPUSHBUTTON
+            BS_RADIOBUTTON | BS_AUTORADIOBUTTON => 0x2040,
+            BS_GROUPBOX => 0x100,
+            _ => 0x2000,
+        },
         WM_NCCREATE => {
             with(|g| {
                 if let Some(w) = g.windows.get_mut(&h) {
@@ -541,7 +557,6 @@ pub unsafe extern "win64" fn button_proc(h: usize, msg: u32, wp: usize, lp: isiz
             });
             0
         }
-        0x0087 => 0x2000, // WM_GETDLGCODE: DLGC_BUTTON
         _ => def_window_proc(h, msg, wp, lp, current_ansi()),
     }
 }
@@ -579,6 +594,25 @@ unsafe fn paint_static(h: usize) {
                         cv.frame_rect(area, color, 1);
                     }
                 });
+            });
+        }
+        3 | 0xE => {
+            erase_with_parent(h, hdc, WM_CTLCOLORSTATIC);
+            with(|g| {
+                let image = g.windows.get(&h).and_then(|w| w.props.get("image").copied()).unwrap_or(0);
+                if kind == 3 {
+                    g.draw_icon(hdc, 0, 0, image, 0, 0);
+                } else if let Some(Object::Bitmap(b)) = g.objects.get(&image) {
+                    let (bw, bh) = (b.surf.w.min(cw), b.surf.h.min(ch));
+                    let pixels: Vec<u32> = (0..bh).flat_map(|y| (0..bw).map(move |x| (x, y))).map(|(x, y)| b.surf.get(x, y)).collect();
+                    g.draw(hdc, |cv, _| {
+                        for y in 0..bh {
+                            for x in 0..bw {
+                                cv.plot(x, y, pixels[(y * bw + x) as usize]);
+                            }
+                        }
+                    });
+                }
             });
         }
         0x10 | 0x11 | 0x12 => with(|g| {
@@ -633,6 +667,21 @@ unsafe fn paint_static(h: usize) {
 
 pub unsafe extern "win64" fn static_proc(h: usize, msg: u32, wp: usize, lp: isize) -> isize {
     match msg {
+        WM_GETDLGCODE => 0x100, // DLGC_STATIC
+        0x170 | 0x172 => {
+            // STM_SETICON / STM_SETIMAGE: the picture a SS_ICON or SS_BITMAP control shows
+            let handle = if msg == 0x170 { wp } else { lp as usize };
+            let old = with(|g| {
+                let old = g.windows.get(&h).and_then(|w| w.props.get("image").copied()).unwrap_or(0);
+                if let Some(w) = g.windows.get_mut(&h) {
+                    w.props.insert("image".into(), handle);
+                }
+                g.invalidate(h, None, true);
+                old
+            });
+            old as isize
+        }
+        0x171 | 0x173 => with(|g| g.windows.get(&h).and_then(|w| w.props.get("image").copied()).unwrap_or(0)) as isize,
         WM_PAINT => {
             paint_static(h);
             0
@@ -1122,6 +1171,11 @@ pub unsafe extern "win64" fn edit_proc(h: usize, msg: u32, wp: usize, lp: isize)
             });
             1
         }
+        WM_GETDLGCODE => {
+            // DLGC_WANTARROWS | DLGC_WANTCHARS | DLGC_HASSETSEL, and Enter too when ES_WANTRETURN asks for it
+            let wants_return = with(|g| g.windows.get(&h).is_some_and(|w| w.style & ES_MULTILINE != 0 && w.style & 0x1000 != 0));
+            0x89 | if wants_return { 4 } else { 0 }
+        }
         WM_PAINT => {
             edit_scroll_to_caret(h);
             paint_edit(h);
@@ -1407,7 +1461,6 @@ pub unsafe extern "win64" fn edit_proc(h: usize, msg: u32, wp: usize, lp: isize)
             let idx = if wp as isize == -1 { edit_state(g, h).map_or(0, |s| s.caret) } else { wp };
             line_of(&chars, idx) as isize
         }),
-        0x0087 => 0x0083, // WM_GETDLGCODE: DLGC_WANTCHARS | DLGC_HASSETSEL | DLGC_WANTARROWS
         _ => def_window_proc(h, msg, wp, lp, current_ansi()),
     }
 }

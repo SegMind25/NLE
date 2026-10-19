@@ -36,7 +36,8 @@ fn programs() -> Option<&'static PathBuf> {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
-        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists"] {
+        let windres = tool("x86_64-w64-mingw32-windres");
+        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs"] {
             let c = src.join(format!("{name}.c"));
             let gui = std::fs::read_to_string(&c).unwrap().contains("WinMain");
             let mut cmd = Command::new(&gcc);
@@ -44,7 +45,16 @@ fn programs() -> Option<&'static PathBuf> {
             if gui {
                 cmd.arg("-mwindows");
             }
-            cmd.arg("-o").arg(dir.join(format!("{name}.exe"))).arg(&c).args(["-lgdi32", "-luser32"]);
+            cmd.arg("-o").arg(dir.join(format!("{name}.exe"))).arg(&c);
+            // a program with resources has a .rc next to it; without windres it is left out
+            if src.join(format!("{name}.rc")).exists() {
+                let Some(windres) = &windres else { continue };
+                let obj = dir.join(format!("{name}_rc.o"));
+                let out = Command::new(windres).current_dir(&src).arg(format!("{name}.rc")).args(["-O", "coff", "-o"]).arg(&obj).output().expect("windres did not start");
+                assert!(out.status.success(), "windres {name}: {}", String::from_utf8_lossy(&out.stderr));
+                cmd.arg(&obj);
+            }
+            cmd.args(["-lgdi32", "-luser32"]);
             let out = cmd.output().expect("compiler did not start");
             assert!(out.status.success(), "compiling {name}: {}", String::from_utf8_lossy(&out.stderr));
         }
@@ -175,6 +185,16 @@ macro_rules! need_mingw {
     };
 }
 
+macro_rules! need_exe {
+    ($name:literal) => {
+        need_mingw!();
+        if !programs().unwrap().join(concat!($name, ".exe")).exists() {
+            eprintln!("skipping: {} needs windres", $name);
+            return;
+        }
+    };
+}
+
 fn shot(name: &str) -> PathBuf {
     work_dir().join(format!("{name}.png"))
 }
@@ -246,6 +266,104 @@ fn window_scroll_bars_send_scroll_messages_and_move_the_thumb() {
     assert_eq!(img.px(311, 140), (240, 240, 240), "the track is light grey");
     assert!(img.near(311, 92, (205, 205, 205), 14), "the thumb sits where it was dragged");
     assert_eq!(img.px(311, 190), (240, 240, 240), "the corner between the bars");
+}
+
+#[test]
+fn menu_bar_menus_accelerators_and_checks() {
+    need_mingw!();
+    let png = shot("menus");
+    // the client area starts at screen (103, 126) and the 20 px menu bar is its top; File is the first item
+    let script = format!(
+        "wait 200; snapshot {}; key ctrl+n; key f5; sclick 113 136; wait 100; sclick 143 155; wait 100; \
+         key alt+e; key down; key down; key down; key enter; wait 50; \
+         key alt+v; key enter; key alt+v; key down; key right; key down; key enter; wait 50; close",
+        png.display()
+    );
+    let out = run_headless_args("menus", &["--log"], &script);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let want = [
+        "ACCEL 101 New", // Ctrl+N and F5 come from the accelerator table
+        "ACCEL 113 Refresh",
+        "INIT", // opening File by mouse tells the window (WM_INITMENUPOPUP)
+        "CMD 101 New",
+        "INIT", // Alt+E opens Edit; Undo is first, Cut is grayed but selectable, Copy, then Paste
+        "CMD 107 Paste",
+        "INIT",
+        "CMD 108 Word wrap",
+        "INIT", // View, down to Zoom, right into its submenu, down to 150%
+        "INIT",
+        "CMD 110 150%",
+    ];
+    assert_eq!(lines(&out), want);
+    let img = Image::read(&png);
+    // 360 x 120 of client area plus the menu bar above it
+    assert_eq!((img.w, img.h), (360, 140));
+    assert_eq!(img.px(300, 5), (240, 240, 240), "the menu bar is light grey");
+    assert!(img.dark_in(6, 3, 36, 17) > 8, "File is written on the bar");
+    assert_eq!(img.px(300, 80), (255, 255, 255), "the client area below is the window colour");
+}
+
+#[test]
+fn context_menu_returns_the_command_or_zero_when_cancelled() {
+    need_mingw!();
+    let script = "wait 200; sclick 250 190 right; wait 100; key down; key down; key enter; wait 100; \
+                  sclick 250 190 right; wait 100; sclick 700 600; wait 100; \
+                  sclick 250 190 right; wait 100; key escape; wait 50; key alt+f; key x; wait 100";
+    let out = run_headless_args("menus", &["--log"], script);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    // Paste by keyboard; a click elsewhere and Esc cancel; Alt+F, X is File > Exit
+    assert_eq!(lines(&out), ["INIT", "POPUP 107 Paste", "INIT", "POPUP 0 ?", "INIT", "POPUP 0 ?", "INIT"]);
+}
+
+#[test]
+fn dialog_from_resources_is_filled_navigated_and_answered_with_the_keyboard() {
+    need_exe!("dialogs");
+    let png = shot("dialogs-main");
+    // Ctrl+S opens Settings; type a name, Tab to the check box and toggle it, Tab to the radio group and
+    // press Down, Tab to the list and Down, Tab to the combo box and Down, Enter presses the default button.
+    // The second time Alt+R, Alt+N (a label: the focus goes to the edit), a name, Alt+S and Enter; the third
+    // time Esc cancels; Alt+H, A opens About and Enter closes it.
+    let script = format!(
+        "wait 200; snapshot {}; key ctrl+s; wait 100; type Ada; key tab; key space; key tab; key down; key tab; key down; key tab; key down; key enter; wait 100; \
+         key ctrl+s; wait 100; key alt+r; key alt+n; type Bob; key alt+s; key enter; wait 100; \
+         key ctrl+s; wait 100; key escape; wait 100; key alt+h; key a; wait 100; key enter; wait 100; close",
+        png.display()
+    );
+    let out = run_headless_args("dialogs", &["--log"], &script);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        lines(&out),
+        [
+            "SETTINGS name=Ada shout=1 colour=Green list=Beta combo=Two",
+            "SETTINGS name=Bob shout=0 colour=Red list=Beta combo=Two",
+            "CANCEL",
+            "ABOUT closed (NLE dialogs example)",
+        ]
+    );
+    // the menu came from the MENU resource and the icon from the ICON resource
+    let img = Image::read(&png);
+    assert_eq!((img.w, img.h), (420, 100), "420 x 80 of client area and the menu bar");
+    assert!(img.dark_in(6, 3, 60, 17) > 12, "the menu bar shows File and Help");
+    assert!(img.near(22, 40, (0, 120, 215), 8), "the blue application icon is drawn");
+}
+
+#[test]
+fn x11_dialog_opens_from_the_menu_and_answers_to_the_keyboard() {
+    need_exe!("dialogs");
+    if start_xvfb().is_none() || xdrive().is_none() || !xdrive_has_xtest() {
+        eprintln!("skipping: needs Xvfb, the X11 headers and libXtst");
+        return;
+    }
+    let ppm = work_dir().join("x-dialog.ppm");
+    // File > Settings with the pointer; then the dialog window gets the keys
+    let steps = ["fclick", "10", "10", "sleep", "200", "fclick", "40", "34", "sleep", "300", "title", "Settings", "wait", "5000", "type", "Eve", "key", "Tab", "key", "space", "sleep", "100", "shot", ppm.to_str().unwrap(), "key", "Return", "sleep", "200", "title", "NLE dialogs", "wait", "3000", "close"];
+    let (code, out) = on_x_with("dialogs", &["--log"], "NLE dialogs", &steps).expect("ran");
+    assert_eq!(code, 0);
+    assert_eq!(out.lines().map(str::trim).collect::<Vec<_>>(), ["SETTINGS name=Eve shout=1 colour=Red list=Alpha combo=One"], "{out}");
+    // the dialog is a real window with its controls drawn: its own size, and text in it
+    let img = Image::from_ppm(&ppm);
+    assert!(img.w > 200 && img.h > 100, "{}x{}", img.w, img.h);
+    assert!(img.dark_in(40, 5, 160, 30) > 20, "the name that was typed is in the edit control");
 }
 
 #[test]
@@ -539,4 +657,23 @@ fn x11_combo_box_drop_down_opens_as_a_popup_and_selects_with_the_mouse() {
     // the list is a window of its own over the form: its first row is on screen below the combo box
     let img = Image::from_ppm(&ppm);
     assert!(img.dark_in(290, 162, 380, 174) > 15, "the drop-down list is drawn on the screen");
+}
+
+#[test]
+fn x11_menus_open_with_the_pointer_and_the_keyboard() {
+    need_x!();
+    if !xdrive_has_xtest() {
+        eprintln!("skipping: needs libXtst for real pointer events");
+        return;
+    }
+    let ppm = work_dir().join("x-menu.ppm");
+    // the window holds the menu bar in its top 20 rows: click File, then New; F10, V opens View; Enter toggles Word wrap
+    let steps = ["fclick", "10", "10", "sleep", "200", "rshot", ppm.to_str().unwrap(), "fclick", "40", "32", "sleep", "200", "key", "F10", "sleep", "100", "key", "v", "sleep", "100", "key", "Return", "sleep", "200", "close"];
+    let (code, out) = on_x_with("menus", &["--log"], "NLE menus", &steps).expect("ran");
+    assert_eq!(code, 0);
+    let got: Vec<&str> = out.lines().map(str::trim).collect();
+    assert_eq!(got, ["INIT", "CMD 101 New", "INIT", "CMD 108 Word wrap"], "{out}");
+    // the open menu is a window of its own, drawn below the bar
+    let img = Image::from_ppm(&ppm);
+    assert!(img.dark_in(110, 150, 160, 168) > 15, "the File menu's first item is on the screen");
 }

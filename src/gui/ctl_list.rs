@@ -514,10 +514,9 @@ fn select_only(g: &mut Gui, h: usize, idx: i32) {
     if let Some(st) = list_mut(g, h) {
         st.cur = idx;
         st.anchor = idx;
-        if multi(style) {
-            for it in &mut st.items {
-                it.sel = false;
-            }
+        let _ = style;
+        for it in &mut st.items {
+            it.sel = false;
         }
         if idx >= 0 {
             if let Some(it) = st.items.get_mut(idx as usize) {
@@ -656,7 +655,7 @@ unsafe fn paint_list(h: usize) {
             let it = &st.items[i];
             let ih = item_height_at(g, h, i);
             let row = Rect::new(0, y, cw, y + ih);
-            let selected = it.sel || (!multi(style) && st.cur == i as i32);
+            let selected = if multi(style) { it.sel } else { st.cur == i as i32 };
             let state = (selected as u32) | ((!enabled as u32) << 2) | (((focused && st.cur == i as i32) as u32) << 4);
             if owner_draw(style) {
                 owner_rows.push((i, row, state, it.data));
@@ -817,7 +816,7 @@ pub unsafe extern "win64" fn listbox_proc(h: usize, msg: u32, wp: usize, lp: isi
             notify(h, LBN_KILLFOCUS);
             0
         }
-        WM_GETDLGCODE => 0x0083, // DLGC_WANTARROWS | DLGC_WANTCHARS
+        WM_GETDLGCODE => 0x0081, // DLGC_WANTARROWS | DLGC_WANTCHARS
         WM_VSCROLL => {
             let (code, pos) = (loword(wp) as u32, hiword(wp));
             let (top, rows, count) = with(|g| (list_ref(g, h).map_or(0, |s| s.top as i64), page_rows(g, h) as i64, list_ref(g, h).map_or(0, |s| s.items.len() as i64)));

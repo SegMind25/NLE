@@ -588,7 +588,8 @@ pub unsafe extern "win64" fn combobox_proc(h: usize, msg: u32, wp: usize, lp: is
             notify_parent(h, CBN_KILLFOCUS);
             0
         }
-        WM_GETDLGCODE => 0x0081, // DLGC_WANTARROWS | DLGC_WANTCHARS
+        // DLGC_WANTARROWS | DLGC_WANTCHARS, and every key while the list is open (Enter and Esc belong to it then)
+        WM_GETDLGCODE => 0x0081 | if with(|g| dropped(g, h)) { 4 } else { 0 },
         WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORSTATIC => {
             let parent = with(|g| g.windows.get(&h).map_or(0, |w| w.parent));
             if parent != 0 {

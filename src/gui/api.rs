@@ -41,6 +41,23 @@ unsafe fn create_struct(a: &CreateArgs, class_name: &str, unicode: bool, rect: R
 }
 
 pub unsafe fn create_window_ex(a: CreateArgs) -> usize {
+    let mut a = a;
+    // a top-level window without a menu of its own gets the one its class names
+    if a.style & WS_CHILD == 0 && !with(|g| g.menus.contains_key(&a.menu)) {
+        let m = with(|g| {
+            let c = g.find_class(&a.class)?;
+            let name = c.menu_name.clone()?;
+            let hinst = if a.hinstance != 0 { a.hinstance } else { c.hinstance };
+            let key = match name.strip_prefix('#').and_then(|n| n.parse::<u16>().ok()) {
+                Some(n) => super::res::Key::Id(n),
+                None => super::res::Key::Name(name),
+            };
+            g.menu_from_resource(hinst, &key)
+        });
+        if let Some(m) = m {
+            a.menu = m;
+        }
+    }
     let tid = current_tid();
     let created = with(|g| {
         let r = g.create_window_raw(&a, tid);
@@ -623,4 +640,29 @@ pub unsafe fn scroll_window(h: usize, dx: i32, dy: i32, area: Option<Rect>) -> b
         }
         true
     })
+}
+
+/// `SetMenu`: gives a top-level window a menu bar (or takes it away). The client area changes size.
+pub unsafe fn set_menu(h: usize, menu: usize) -> bool {
+    let ok = with(|g| {
+        if menu != 0 && !g.menus.contains_key(&menu) {
+            return false;
+        }
+        let Some(w) = g.windows.get_mut(&h) else { return false };
+        if w.parent != 0 {
+            return false;
+        }
+        w.menu = menu;
+        g.invalidate(h, None, true);
+        true
+    });
+    if ok {
+        let (cw, ch) = with(|g| g.windows.get(&h).map_or((0, 0), |w| w.client_size()));
+        send(h, WM_SIZE, 0, make_lparam(cw, ch));
+        with(|g| {
+            g.paint_nc(h);
+            g.flush();
+        });
+    }
+    ok
 }

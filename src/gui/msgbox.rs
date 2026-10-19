@@ -56,8 +56,8 @@ fn default_index(flags: u32, count: usize) -> usize {
 }
 
 pub fn register_class(g: &mut Gui) {
-    if g.find_class(&ClassRef::Name("#32770".into())).is_none() {
-        g.register_class(Class { name: "#32770".into(), atom: 0, style: 0, wndproc: dialog_proc as *const () as usize, cls_extra: 0, wnd_extra: 0, hinstance: 0, icon: 0, cursor: 0, background: 16, menu_name: None, unicode: true, native: true });
+    if g.find_class(&ClassRef::Name("NleMessageBox".into())).is_none() {
+        g.register_class(Class { name: "NleMessageBox".into(), atom: 0, style: 0, wndproc: dialog_proc as *const () as usize, cls_extra: 0, wnd_extra: 0, hinstance: 0, icon: 0, cursor: 0, background: 16, menu_name: None, unicode: true, native: true });
     }
 }
 
@@ -278,7 +278,7 @@ pub unsafe fn message_box(owner: usize, text: &str, caption: &str, flags: u32) -
         None => (sw / 2, sh / 2),
     };
     let (x, y) = ((cx - ow / 2).clamp(0, (sw - ow).max(0)), (cy - oh / 2).clamp(0, (sh - oh).max(0)));
-    let dlg = api::create_window_ex(CreateArgs { ex_style: ex, class: ClassRef::Name("#32770".into()), title: caption.to_string(), style, x, y, w: ow, h: oh, parent: owner, menu: 0, hinstance: 0, param: 0, ansi: false });
+    let dlg = api::create_window_ex(CreateArgs { ex_style: ex, class: ClassRef::Name("NleMessageBox".into()), title: caption.to_string(), style, x, y, w: ow, h: oh, parent: owner, menu: 0, hinstance: 0, param: 0, ansi: false });
     if dlg == 0 {
         eprintln!("[{caption}] {text}");
         return buttons.get(default).map_or(IDOK, |b| b.0);
