@@ -38,12 +38,13 @@ documentation.
 
 ## What to expect
 
-NLE is a **compatibility layer for x86-64 Windows console programs**. It is honest about its limits:
+NLE is a **compatibility layer for x86-64 Windows programs**: console tools, and programs with simple windows. It is honest about its limits:
 
 | works today (tested on every commit) | does not work |
 | --- | --- |
-| C and C++ programs built with MinGW-w64 (static or dynamic runtime) | **GUI** programs (windows, Direct3D, OpenGL): `user32` is only partly stubbed and `gdi32` is missing |
-| Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | **32-bit** programs and **.NET** programs |
+| C and C++ programs built with MinGW-w64 (static or dynamic runtime) | **menus**, dialog and menu resources, icons / bitmaps / strings from the executable, common controls (`comctl32`), list boxes, combo boxes, scroll bars |
+| Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | **Direct3D**, OpenGL, DirectDraw, GDI+, printing |
+| **programs with windows**: Win32 windows and messages, GDI drawing, text, buttons, check boxes, radio buttons, labels, text boxes, message boxes, timers (shown on an X11 display, see [docs/GUI.md](docs/GUI.md)) | **32-bit** programs and **.NET** programs |
 | threads, locks, TLS, fiber-local storage, timers | MSVC C++ exceptions (`_CxxThrowException`); MinGW exceptions work |
 | files, directories, case-insensitive paths, `C:\` drives, pipes, console I/O | overlapped / IOCP networking (blocking and non-blocking sockets work) |
 | structured exceptions, hardware faults (access violation, divide by zero), C++ exceptions, `setjmp` / `longjmp` | anything that needs Windows kernel drivers, DRM, anti-cheat |
@@ -68,19 +69,27 @@ and draws what they print.
 | | |
 | --- | --- |
 | **Check a program first.** `nle inspect` lists the imports and says whether the program can run natively.<br><img src="docs/screenshots/02-inspect.png" alt="nle inspect"> | **Convert it.** `nle relink` writes a Linux ELF; `file` and `ldd` show an ordinary dynamically linked program.<br><img src="docs/screenshots/03-relink.png" alt="nle relink"> |
-| **Go and Rust programs** bring their own runtimes and run unchanged.<br><img src="docs/screenshots/04-go-and-rust.png" alt="Go and Rust programs"> | **Honest limits.** A GUI program is reported as partial and stops with a clear message.<br><img src="docs/screenshots/05-limits.png" alt="a program NLE cannot run"> |
-| **Real test programs**: threads, files, exceptions, DLLs, sockets, child processes, the registry.<br><img src="docs/screenshots/08-test-programs.png" alt="test programs"> | **Check your machine** with `nle doctor`, and list the 1,300+ implemented functions with `nle coverage`.<br><img src="docs/screenshots/06-doctor.png" alt="nle doctor"> |
+| **Go and Rust programs** bring their own runtimes and run unchanged.<br><img src="docs/screenshots/04-go-and-rust.png" alt="Go and Rust programs"> | **Honest limits.** A program that needs the common controls library is reported as partial and stops with a clear message.<br><img src="docs/screenshots/05-limits.png" alt="a program NLE cannot run"> |
+| **Real test programs**: threads, files, exceptions, DLLs, sockets, child processes, the registry.<br><img src="docs/screenshots/08-test-programs.png" alt="test programs"> | **Check your machine** with `nle doctor`, and list the 1,700+ implemented functions with `nle coverage`.<br><img src="docs/screenshots/06-doctor.png" alt="nle doctor"> |
+| **Programs with windows** run on an X11 display. A form with text box, check box, radio buttons and a timer:<br><img src="docs/screenshots/10-controls.png" alt="controls.exe"> | Freehand drawing with GDI: a back buffer, mouse input, keyboard shortcuts, a timer-driven ball:<br><img src="docs/screenshots/11-paint.png" alt="paint.exe"> |
+| Message boxes with icons, buttons and keyboard handling, from a console program:<br><img src="docs/screenshots/12-message-box.png" alt="a message box"> | A plain Win32 window: the program that started this feature.<br><img src="docs/screenshots/09-window.png" alt="window.exe"> |
 
 ## Try it
 
 The programs in [`examples/`](examples) are built with MinGW-w64 (`apt install gcc-mingw-w64-x86-64`):
 
 ```console
-$ examples/build.sh                    # hello.exe, sysinfo.exe, window.exe in examples/bin
+$ examples/build.sh                    # the examples, built into examples/bin
 $ nle examples/bin/sysinfo.exe         # system facts, registry, files, threads
 $ nle relink examples/bin/sysinfo.exe -o dist && ./dist/sysinfo
-$ nle inspect examples/bin/window.exe  # a GUI program: shows what is not supported
+$ nle examples/bin/controls.exe        # a form with windows (needs an X11 display)
+$ nle examples/bin/paint.exe           # drag to draw, 1-4 colours, C clears
+$ nle examples/bin/msgbox.exe          # message boxes; the answer is the exit code
 ```
+
+Windows work through the display NLE finds in `DISPLAY`. For tests and CI there is a scripted headless display:
+`NLE_GUI=headless NLE_GUI_SCRIPT="wait 200; click 130 25; type Ada; snapshot out.png; close" nle examples/bin/controls.exe`.
+All of it is described in [docs/GUI.md](docs/GUI.md).
 
 ## Install
 
@@ -115,6 +124,7 @@ Run options: `--backend auto\|native\|wine`, `--prefix DIR`, `--strict`, `-v`.
 * The program sees its own Windows-style environment (`SystemRoot`, `TEMP`, `USERPROFILE`, ...) with your host variables added.
 * The program believes it runs on Windows 10 (x64), in the "en-US" locale, with UTF-8 as the code page.
 * `NLE_TRACE=load,bind,api` (or `all`) logs what the loader and the API layer do.
+* `NLE_GUI=x11|headless` chooses the display for programs with windows (default: the X11 display in `DISPLAY`); `NLE_GUI_SCRIPT` drives the headless one, `NLE_FONT_DIR` adds a font directory.
 
 ### Relinked programs
 

@@ -17,7 +17,7 @@ jobs:
         with:
           go-version: stable
       - name: Windows cross toolchains for the test programs
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 xvfb libx11-dev
       - name: Build
         run: cargo build --release
       - name: Test (unit tests and real Windows programs, run and relinked)
@@ -30,6 +30,10 @@ jobs:
           ./target/release/nle examples/bin/sysinfo.exe
           ./target/release/nle relink examples/bin/sysinfo.exe -o /tmp/sysinfo-linux
           /tmp/sysinfo-linux/sysinfo
+      - name: GUI example on the headless display
+        run: |
+          NLE_GUI=headless NLE_GUI_SCRIPT="wait 100; snapshot /tmp/window.png; close" ./target/release/nle examples/bin/window.exe
+          test -s /tmp/window.png
       - name: Coverage list is up to date
         run: |
           ./target/release/nle coverage --markdown > /tmp/COVERAGE.md

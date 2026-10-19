@@ -199,6 +199,11 @@ pub fn analyze(pe: &Pe, exe_path: Option<&Path>) -> Report {
             notes.push(format!("missing DLL: {}", i.dll));
         }
     }
+    // programs that open windows need a display, which the report should say
+    let opens_windows = imports.iter().any(|i| i.status == Status::Resolved && matches!(i.name.as_str(), "CreateWindowExA" | "CreateWindowExW" | "DialogBoxParamA" | "DialogBoxParamW" | "CreateDialogParamA" | "CreateDialogParamW"));
+    if opens_windows {
+        notes.push("opens windows: needs an X11 display (DISPLAY); NLE_GUI=headless runs it without one".into());
+    }
     notes.dedup();
 
     Report {

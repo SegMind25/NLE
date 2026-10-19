@@ -93,6 +93,14 @@ has to be rewritten.
 Programs that locate themselves with `GetModuleFileName` get `<dir>/<original>.exe`. That file is not shipped, so
 opening that exact path opens the ELF instead; a program that starts itself again therefore starts the ELF.
 
+## Windows
+
+Programs with windows (`user32`, `gdi32`) are served by `src/gui/`, described in [GUI.md](GUI.md). In short: window
+classes, windows, the message loop and the default window procedure are reimplemented; everything a window shows is
+drawn into memory by a software renderer (so drawing needs no display); an X11 backend, loaded with `dlopen`,
+puts the finished pixels on the screen and brings keyboard and mouse input back. A scripted headless display replaces
+X for tests. BUTTON, STATIC and EDIT are ordinary window procedures registered as built-in classes.
+
 ## Backends
 
 `backend.rs` decides between the native layer and Wine from the `inspect` verdict:

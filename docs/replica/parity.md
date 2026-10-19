@@ -1,9 +1,9 @@
-## Parity: 85.8 / 100
+## Parity: 84.9 / 100
 
-features 85.8  (24 counted, must-haves 15 of 15 done)
+features 84.9  (26 counted, must-haves 15 of 15 done)
 
 ## By area, weakest first
-- compat                         0.0  (4 features)
+- compat                        22.2  (6 features)
 - network                       83.3  (2 features)
 - core                          91.3  (8 features)
 - launch                       100.0  (1 features)
@@ -17,9 +17,10 @@ features 85.8  (24 counted, must-haves 15 of 15 done)
 
 ## Missing, in build order
 - [should] compat: 32-bit Windows programs, no  (out of scope: the native layer is x64 only)
-- [should] compat: GUI programs (windows / Direct3D), no  (user32 is partly stubbed and gdi32 is missing; use the Wine backend)
+- [should] compat: Menus, dialog resources and common controls, no  (functions exist so programs start, but no menu bar, no RT_DIALOG / RT_MENU resources, no comctl32, list / combo boxes or scroll bars)
 - [should] core: MSVC C++ exceptions (`_CxxThrowException`), no  (not implemented; programs that throw MSVC exceptions stop with a clear message)
 - [could] compat: .NET programs, no  (out of scope: needs a CLR)
+- [could] compat: Direct3D / OpenGL graphics, no  (out of scope)
 - [could] compat: Windows on ARM64 hosts, no  (x86-64 hosts only; native execution is the design)
 - [could] network: Overlapped and IOCP networking, partial  (IOCP object exists for files and pipes; overlapped sockets are not implemented)
 
@@ -35,3 +36,4 @@ features 85.8  (24 counted, must-haves 15 of 15 done)
 - Clear error when a missing API is called
 - Trace what the program does
 - Sandboxing
+- Headless display driven by a script

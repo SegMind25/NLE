@@ -10,6 +10,7 @@
 pub mod analyze;
 pub mod backend;
 pub mod cli;
+pub mod gui;
 pub mod launch;
 pub mod loader;
 pub mod pe;

@@ -21,13 +21,12 @@ path = "src/main.rs"
 
 [dependencies]
 libc = "0.2"
+# Glyph rasterizer for the window system; pure Rust, no unsafe code of ours around it.
+fontdue = { version = "0.9", default-features = false, features = ["hashbrown"] }
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 4
-panic = "abort"
 strip = "debuginfo"
 
-[profile.dev]
-panic = "abort"

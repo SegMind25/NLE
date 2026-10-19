@@ -456,6 +456,16 @@ fn cmd_doctor() -> ExitCode {
     let prefix = crate::runtime::paths::default_prefix();
     let writable = std::fs::create_dir_all(&prefix).is_ok();
     all_ok &= check(writable, "Windows prefix directory", &prefix.display().to_string());
+    // windows: a display to show them on, and fonts to draw text with
+    match std::env::var("DISPLAY") {
+        Ok(d) if !d.is_empty() => match crate::gui::x11::X11::open() {
+            Ok(_) => optional(true, "X11 display", &format!("{d}: programs with windows can be shown")),
+            Err(e) => optional(false, "X11 display", &e),
+        },
+        _ => optional(false, "X11 display", "DISPLAY is not set; programs with windows need one (NLE_GUI=headless runs them without)"),
+    }
+    let sans = crate::gui::font::face(crate::gui::font::Family::Sans, false, false).is_some();
+    optional(sans, "fonts for window text", if sans { "TrueType fonts found" } else { "none found (install fonts-liberation or fonts-dejavu-core)" });
     match runtime_lib() {
         Some(p) => {
             optional(true, "libnle.so (needed by `relink`)", &p.display().to_string());

@@ -10,6 +10,7 @@ pub mod crt_setjmp;
 pub mod crt_startup;
 pub mod crt_stdio;
 pub mod crt_stdlib;
+pub mod gdi32;
 pub mod crt_string;
 pub mod k32_console;
 pub mod k32_file;
@@ -24,6 +25,7 @@ pub mod misc;
 pub mod ntdll;
 pub mod ntdll_file;
 pub mod seh;
+pub mod user32;
 pub mod winreg;
 pub mod ws2_32;
 
@@ -65,6 +67,9 @@ pub fn tables() -> Vec<&'static [Shim]> {
         misc::PSAPI_K32,
         misc::WINMM_SHIMS,
         ws2_32::WS2_SHIMS,
+        user32::USER32_SHIMS,
+        gdi32::GDI32_SHIMS,
+        gdi32::MSIMG32_SHIMS,
         crt_math::SHIMS,
         crt_startup::SHIMS,
         crt_startup::DATA,

@@ -6,7 +6,7 @@ Reads `recon.md` and `features.csv`.
 
 | layer | choice | why |
 | --- | --- | --- |
-| language | Rust 2021, one dependency (`libc`) | speed, no runtime, memory-safe where it can be; the unsafe parts are the FFI edges |
+| language | Rust 2021, two dependencies (`libc`, and `fontdue` for window text) | speed, no runtime, memory-safe where it can be; the unsafe parts are the FFI edges |
 | runtime | `libnle` as `rlib` + `cdylib` | the CLI links it in; relinked programs link `libnle.so` dynamically |
 | calling convention | `extern "win64"` for everything a guest can call | no thunks for plain functions; variadics use small `naked` assembly thunks |
 | hardware | x86-64 Linux | the guest's machine code runs as it is; there is no CPU emulation |

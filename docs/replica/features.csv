@@ -1,7 +1,7 @@
 feature,area,priority,original,clone,notes
 Run a program by passing its file to one command,launch,must,yes,yes,`nle app.exe` and `nle run`
 Load the program into the host process without emulating the CPU,core,must,yes,yes,PE image is mapped and called directly; imports are bound to Rust functions using the Windows x64 calling convention
-Replace the platform OS library with reimplemented functions,core,must,yes,yes,1300+ functions across kernel32 / ntdll / msvcrt+ucrt / advapi32 / ws2_32 / others (see COVERAGE.md)
+Replace the platform OS library with reimplemented functions,core,must,yes,yes,1700+ functions across kernel32 / ntdll / msvcrt+ucrt / user32 / gdi32 / advapi32 / ws2_32 / others (see COVERAGE.md)
 Convert the program into a standalone native executable (relink),relink,must,yes,yes,`nle relink` writes an ET_EXEC ELF that the Linux kernel loads; verified on C / C++ / Rust / Go programs
 Keep the original load address so absolute pointers need no relocation,relink,must,yes,yes,PE image becomes PT_LOAD segments at the preferred base; metadata segments sit above it
 Program reads its own files beside it (data / DLLs),relink,must,yes,yes,bundled DLLs are copied next to the output; `GetModuleFileName` points beside the ELF
@@ -32,5 +32,8 @@ Trace what the program does,diagnostics,could,no,yes,`NLE_TRACE=load|bind|api|al
 32-bit Windows programs,compat,should,yes,no,out of scope: the native layer is x64 only
 .NET programs,compat,could,yes,no,out of scope: needs a CLR
 Windows on ARM64 hosts,compat,could,yes,no,x86-64 hosts only; native execution is the design
-GUI programs (windows / Direct3D),compat,should,yes,no,user32 is partly stubbed and gdi32 is missing; use the Wine backend
+"Win32 windows, GDI drawing and basic controls",compat,should,yes,yes,"X11 display (or a scripted headless one); windows, messages, GDI, BUTTON / STATIC / EDIT, MessageBox, timers, clipboard; see docs/GUI.md"
 Sandboxing,security,could,no,skip,programs run with the user's rights; not a security boundary
+"Menus, dialog resources and common controls",compat,should,yes,no,"functions exist so programs start, but no menu bar, no RT_DIALOG / RT_MENU resources, no comctl32, list / combo boxes or scroll bars"
+Direct3D / OpenGL graphics,compat,could,yes,no,out of scope
+Headless display driven by a script,testing,could,no,yes,NLE_GUI=headless with NLE_GUI_SCRIPT; used by the tests and the screenshots

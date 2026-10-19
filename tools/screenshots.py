@@ -8,9 +8,13 @@ window with a headless Chromium. Re-run it after a change to see the new output:
     python3 tools/screenshots.py              # all scenes
     python3 tools/screenshots.py inspect run  # only these
 
+The GUI scenes run the example programs on a real X server (Xvfb) and grab the pixels of their
+windows with tests/gui/xdrive.c, which also plays the user (clicks, typing, dragging).
+
 Needs: a release build (built on demand), MinGW-w64 (x86_64-w64-mingw32-gcc / g++) for the
-example programs, and optionally Go and the x86_64-pc-windows-gnu Rust target for the
-Go / Rust scene. Pillow is used to shrink the PNGs.
+example programs, optionally Go and the x86_64-pc-windows-gnu Rust target for the Go / Rust
+scene, and Xvfb plus a C compiler with the X11 headers for the GUI scenes. Pillow is used to
+convert and shrink the PNGs.
 """
 
 import html
@@ -24,6 +28,8 @@ import sys
 import termios
 import fcntl
 import glob
+import time
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,7 +75,7 @@ SCENES = [
         "name": "05-limits",
         "title": "what NLE cannot run",
         "width": 1040,
-        "cmds": ["nle inspect window.exe", "nle window.exe"],
+        "cmds": ["nle inspect progress.exe", "nle progress.exe"],
     },
     {
         "name": "06-doctor",
@@ -90,6 +96,41 @@ SCENES = [
         "cmds": [
             "for t in threads files memory unicode seh dll net process registry; do printf '%-9s' $t; nle t_$t.exe | tail -n 1; done",
         ],
+    },
+]
+
+GUI_SCENES = [
+    {
+        "name": "09-window",
+        "title": "window.exe",
+        "exe": "window.exe",
+        "wait_title": "NLE demo",
+        "steps": ["shot"],
+    },
+    {
+        "name": "10-controls",
+        "title": "controls.exe",
+        "exe": "controls.exe",
+        "wait_title": "NLE controls",
+        "steps": ["click", "130", "25", "type", "Ada", "click", "340", "26", "sleep", "300", "shot"],
+    },
+    {
+        "name": "11-paint",
+        "title": "paint.exe",
+        "exe": "paint.exe",
+        "wait_title": "NLE paint",
+        "steps": [
+            "drag", "60", "320", "180", "120", "drag", "180", "120", "300", "300",
+            "key", "2", "drag", "300", "300", "420", "110", "drag", "420", "110", "540", "310",
+            "key", "3", "drag", "70", "250", "560", "250", "sleep", "200", "shot",
+        ],
+    },
+    {
+        "name": "12-message-box",
+        "title": "msgbox.exe",
+        "exe": "msgbox.exe",
+        "wait_title": "Question",
+        "steps": ["shot"],
     },
 ]
 
@@ -254,6 +295,75 @@ def render(scene: dict, body_html: str, tmp: Path):
     print(f"wrote {png.relative_to(ROOT)}  ({png.stat().st_size // 1024} KiB)")
 
 
+GUI_PAGE = """<!doctype html><meta charset="utf-8">
+<style>
+  html, body {{ margin: 0; background: transparent; }}
+  #shot {{ box-sizing: border-box; display: inline-block; padding: 34px;
+    background: radial-gradient(700px 360px at 8% 0%, rgba(56,189,248,.22), transparent 62%),
+                radial-gradient(600px 360px at 100% 100%, rgba(52,211,153,.16), transparent 62%), #0A1020; }}
+  .win {{ border-radius: 10px; overflow: hidden; background: #1b2230; border: 1px solid #30363D;
+    box-shadow: 0 24px 60px rgba(0,0,0,.55); }}
+  .bar {{ position: relative; height: 32px; background: #161B22; border-bottom: 1px solid #30363D; }}
+  .dot {{ position: absolute; top: 10px; width: 12px; height: 12px; border-radius: 50%; }}
+  .title {{ position: absolute; inset: 0; text-align: center; color: #8B949E; font: 13px/32px "DejaVu Sans", "Liberation Sans", Arial, sans-serif; }}
+  img {{ display: block; }}
+</style>
+<div id="shot"><div class="win">
+  <div class="bar"><span class="dot" style="left:14px;background:#FF5F57"></span><span class="dot" style="left:32px;background:#FEBC2E"></span><span class="dot" style="left:50px;background:#28C840"></span><div class="title">{title}</div></div>
+  <img src="file://{image}" width="{w}" height="{h}">
+</div></div>
+<script>addEventListener('load', function () {{ var e = document.getElementById('shot'); document.documentElement.setAttribute('data-w', e.offsetWidth); document.documentElement.setAttribute('data-h', e.offsetHeight); }});</script>
+"""
+
+
+def start_xvfb():
+    for n in range(97, 197):
+        sock = Path(f"/tmp/.X11-unix/X{n}")
+        if sock.exists():
+            continue
+        p = subprocess.Popen(["Xvfb", f":{n}", "-screen", "0", "1024x768x24", "-nolisten", "tcp", "-noreset"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(100):
+            if sock.exists():
+                return p, f":{n}"
+            time.sleep(0.05)
+        p.kill()
+    sys.exit("could not start Xvfb")
+
+
+def render_gui(scene: dict, tmp: Path, display: str, drive: Path):
+    ppm = tmp / f"{scene['name']}.ppm"
+    env = dict(os.environ, DISPLAY=display, NLE_PREFIX=str(DEMO / ".prefix"), HOME=str(DEMO.parent), USER="user")
+    env.pop("NLE_GUI", None)
+    prog = subprocess.Popen([str(NLE), "run", str(DEMO / scene["exe"])], env=env, cwd=DEMO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    steps = []
+    for st in scene["steps"]:
+        steps.append(str(ppm) if st == "shot" else st)
+    # `shot` is followed by its file name argument
+    cmd = [str(drive), scene["wait_title"], "wait", "8000"]
+    for st in scene["steps"]:
+        cmd += ["shot", str(ppm)] if st == "shot" else [st]
+    cmd += ["close"] if scene["exe"] != "msgbox.exe" else ["key", "y", "sleep", "400", "title", "NLE", "wait", "5000", "key", "enter"]
+    subprocess.run(cmd, env=env, check=True)
+    try:
+        prog.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        prog.kill()
+    from PIL import Image
+    img = Image.open(ppm).convert("RGB")
+    png = tmp / f"{scene['name']}-raw.png"
+    img.save(png)
+    page = tmp / f"{scene['name']}.html"
+    page.write_text(GUI_PAGE.format(title=html.escape(scene["title"]), image=png, w=img.width, h=img.height))
+    base = [chrome(), "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", f"file://{page}"]
+    dom = subprocess.run(base[:-1] + ["--window-size=%d,%d" % (img.width + 200, img.height + 200), "--dump-dom", base[-1]], capture_output=True, text=True, check=True).stdout
+    w = int(re.search(r'data-w="(\d+)"', dom).group(1))
+    h = int(re.search(r'data-h="(\d+)"', dom).group(1))
+    out = OUT / f"{scene['name']}.png"
+    subprocess.run(base[:-1] + [f"--window-size={w},{h}", f"--screenshot={out}", base[-1]], check=True, capture_output=True)
+    Image.open(out).convert("RGB").save(out, optimize=True, compress_level=9)
+    print(f"wrote {out.relative_to(ROOT)}  ({out.stat().st_size // 1024} KiB)")
+
+
 def main():
     wanted = sys.argv[1:]
     scenes = [s for s in SCENES if not wanted or any(w in s["name"] for w in wanted)]
@@ -271,12 +381,24 @@ def main():
     tmp = ROOT / "target" / "screenshots-tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     for scene in scenes:
+        if "cmds" not in scene:
+            continue
         parts = []
         for cmd in scene["cmds"]:
             parts.append(f'<span class="p">$</span> <span class="c">{html.escape(cmd)}</span>\n')
             parts.append(ansi_to_html(run_in_pty(cmd, env)))
         body = "".join(parts).rstrip("\n")
         render(scene, body, tmp)
+    gui = [g for g in GUI_SCENES if not wanted or any(w in g["name"] for w in wanted)]
+    if gui:
+        drive = DEMO / "xdrive"
+        subprocess.run(["cc", "-O1", "-o", str(drive), str(ROOT / "tests" / "gui" / "xdrive.c"), "-lX11"], check=True)
+        xvfb, display = start_xvfb()
+        try:
+            for g in gui:
+                render_gui(g, tmp, display, drive)
+        finally:
+            xvfb.kill()
     shutil.rmtree(tmp, ignore_errors=True)
 
 

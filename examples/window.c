@@ -1,8 +1,8 @@
-/* A classic Win32 window. NLE does not implement graphics (user32 is partly stubbed, gdi32 is
- * missing), so this one shows what an unsupported program looks like:
+/* A classic Win32 window: register a class, create the window, run the message loop, draw text
+ * when asked to paint.
  *
- *   nle inspect window.exe      # verdict: partial, with the missing functions listed
- *   nle window.exe              # stops with a clear message instead of misbehaving
+ *   x86_64-w64-mingw32-gcc -O2 -o window.exe window.c
+ *   nle window.exe              # needs an X11 display; close the window to quit
  */
 #include <windows.h>
 

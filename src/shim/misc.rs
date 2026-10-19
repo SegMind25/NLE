@@ -122,12 +122,6 @@ unsafe fn co_task_wide(s: &str) -> *mut u16 {
     p
 }
 
-unsafe fn show_message(caption: &str, text: &str) -> i32 {
-    libc::fflush(std::ptr::null_mut());
-    eprintln!("[{caption}] {text}");
-    1
-}
-
 unsafe fn proc_mem(counters: *mut u8, cb: u32) -> BOOL {
     let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
     let mut it = statm.split_whitespace().map(|v| v.parse::<usize>().unwrap_or(0));
@@ -489,62 +483,12 @@ crate::shims! { "oleaut32" => OLEAUT_SHIMS;
 }
 
 crate::shims! { "user32" => USER_SHIMS;
-    fn MessageBoxW(_hwnd: HANDLE, text: LPCWSTR, caption: LPCWSTR, _ty: UINT) -> i32 {
-        show_message(&w_ptr_to_string(caption), &w_ptr_to_string(text))
-    }
-    fn MessageBoxA(_hwnd: HANDLE, text: LPCSTR, caption: LPCSTR, _ty: UINT) -> i32 {
-        show_message(&a_to_string(caption), &a_to_string(text))
-    }
-    fn MessageBoxExW(hwnd: HANDLE, text: LPCWSTR, caption: LPCWSTR, ty: UINT, _lang: WORD) -> i32 {
-        MessageBoxW(hwnd, text, caption, ty)
-    }
-    fn MessageBeep(_ty: UINT) -> BOOL {
-        TRUE
-    }
-    fn GetSystemMetrics(index: i32) -> i32 {
-        match index {
-            0 => 1920,
-            1 => 1080,
-            4 => 23,
-            15 => 20,
-            16 => 1920,
-            17 => 1057,
-            _ => 0,
-        }
-    }
-    fn GetDesktopWindow() -> HANDLE {
-        0
-    }
-    fn GetForegroundWindow() -> HANDLE {
-        0
-    }
-    fn GetActiveWindow() -> HANDLE {
-        0
-    }
-    fn GetKeyState(_k: i32) -> i16 {
-        0
-    }
-    fn GetAsyncKeyState(_k: i32) -> i16 {
-        0
-    }
-    fn GetCursorPos(p: *mut i32) -> BOOL {
-        *p = 0;
-        *p.add(1) = 0;
-        TRUE
-    }
     fn SetProcessDPIAware() -> BOOL {
         TRUE
     }
     fn SetProcessDpiAwarenessContext(_c: usize) -> BOOL {
         TRUE
     }
-    fn IsWindow(_h: HANDLE) -> BOOL {
-        FALSE
-    }
-    fn IsWindowVisible(_h: HANDLE) -> BOOL {
-        FALSE
-    }
-    fn PostQuitMessage(_code: i32) {}
     fn CharUpperW(s: *mut u16) -> *mut u16 {
         if (s as usize) < 0x10000 {
             return upper_unit(s as usize as u16) as usize as *mut u16;

@@ -106,6 +106,7 @@ pub fn family_of(dll: &str) -> Option<&'static str> {
         | "vcruntime140" | "vcruntime140_1" | "vcruntime140d" | "ucrtbased" => "crt",
         "user32" => "user32",
         "gdi32" | "gdi32full" => "gdi32",
+        "msimg32" => "msimg32",
         "advapi32" | "sechost" => "advapi32",
         "shell32" => "shell32",
         "shlwapi" => "shlwapi",
