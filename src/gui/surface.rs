@@ -24,6 +24,11 @@ impl Rect {
     pub fn height(&self) -> i32 {
         self.b - self.t
     }
+    /// Width and height.
+    pub fn wh(&self) -> (i32, i32) {
+        (self.width(), self.height())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.r <= self.l || self.b <= self.t
     }

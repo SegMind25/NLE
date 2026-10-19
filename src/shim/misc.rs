@@ -574,9 +574,6 @@ crate::shims! { "user32" => USER_SHIMS;
         lstrcpy_bytes(dst, src);
         TRUE
     }
-    fn LoadStringW(_inst: HMODULE, _id: UINT, _buf: LPWSTR, _max: i32) -> i32 {
-        0
-    }
     fn wvsprintfA(buf: LPSTR, fmt: LPCSTR, va: *const u64) -> i32 {
         wsprintf_impl(buf, fmt, va)
     }

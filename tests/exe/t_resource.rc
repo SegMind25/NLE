@@ -1,0 +1,14 @@
+#include <windows.h>
+
+STRINGTABLE
+BEGIN
+    1 "Hello resource"
+    2 "Second string"
+    17 "In another block"
+END
+
+1 ICON "res/test.ico"
+2 BITMAP "res/test.bmp"
+BLOB RCDATA { "NLE-BLOB\0" }
+LANGUAGE 0x09, 0x01
+7 RCDATA { "seven\0" }

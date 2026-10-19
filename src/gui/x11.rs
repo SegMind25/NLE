@@ -71,6 +71,7 @@ lib_fns! {
     XTranslateCoordinates: unsafe extern "C" fn(*mut Display, Xid, Xid, c_int, c_int, *mut c_int, *mut c_int, *mut Xid) -> c_int,
     XSetWindowBackgroundPixmap: unsafe extern "C" fn(*mut Display, Xid, Xid) -> c_int,
     XSetTransientForHint: unsafe extern "C" fn(*mut Display, Xid, Xid) -> c_int,
+    XChangeWindowAttributes: unsafe extern "C" fn(*mut Display, Xid, c_ulong, *mut u64) -> c_int,
 }
 
 unsafe extern "C" fn ignore_x_errors(_: *mut Display, _: *mut c_void) -> c_int {
@@ -383,6 +384,12 @@ impl Backend for X11 {
             let win = (self.lib.XCreateSimpleWindow)(self.dpy, self.root, x, y, spec.w.max(1) as c_uint, spec.h.max(1) as c_uint, 0, 0, 0);
             (self.lib.XSelectInput)(self.dpy, win, EVENT_MASK);
             (self.lib.XSetWindowBackgroundPixmap)(self.dpy, win, 0);
+            if spec.popup {
+                // XSetWindowAttributes with only override_redirect set (CWOverrideRedirect = 1 << 9)
+                let mut attrs = [0u64; 14];
+                attrs[11] = 1;
+                (self.lib.XChangeWindowAttributes)(self.dpy, win, 1 << 9, attrs.as_mut_ptr());
+            }
             let mut proto = self.wm_delete;
             (self.lib.XSetWMProtocols)(self.dpy, win, &mut proto, 1);
             self.set_title_prop(win, &spec.title);

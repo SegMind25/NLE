@@ -9,7 +9,9 @@
 //! `wait MS`, `click X Y [left|right|middle]`, `dblclick X Y`, `move X Y`, `down X Y [button]`,
 //! `up X Y [button]`, `key [ctrl+|shift+|alt+]NAME`, `type TEXT`, `resize W H`,
 //! `snapshot PATH.png`, `close`, `exit [CODE]`, `print TEXT`.
-//! Coordinates are client coordinates of the newest top-level window.
+//! Coordinates are client coordinates of the newest top-level window. The `s` variants (`smove`, `sclick`,
+//! `sdblclick`, `sdown`, `sup`) take screen coordinates and act on whatever window is there, which is how a
+//! script reaches menus and drop-down lists.
 
 use super::backend::*;
 use super::surface::{Rect, Surface};
@@ -138,6 +140,16 @@ fn parse_script(text: &str) -> Result<VecDeque<Step>, String> {
         match cmd {
             "wait" | "sleep" => step.wait_ms = num(0)? as u64,
             "move" => step.events.push(Event::Motion { win: 0, x: num(0)?, y: num(1)? }),
+            "smove" => step.events.push(Event::Motion { win: SCREEN, x: num(0)?, y: num(1)? }),
+            "sdown" | "sup" => step.events.push(Event::Button { win: SCREEN, button: button_number(args.get(2).copied()), down: cmd == "sdown", x: num(0)?, y: num(1)? }),
+            "sclick" | "sdblclick" => {
+                let (x, y, b) = (num(0)?, num(1)?, button_number(args.get(2).copied()));
+                step.events.push(Event::Motion { win: SCREEN, x, y });
+                for _ in 0..if cmd == "sdblclick" { 2 } else { 1 } {
+                    step.events.push(Event::Button { win: SCREEN, button: b, down: true, x, y });
+                    step.events.push(Event::Button { win: SCREEN, button: b, down: false, x, y });
+                }
+            }
             "down" | "up" => step.events.push(Event::Button { win: 0, button: button_number(args.get(2).copied()), down: cmd == "down", x: num(0)?, y: num(1)? }),
             "click" | "dblclick" => {
                 let (x, y, b) = (num(0)?, num(1)?, button_number(args.get(2).copied()));

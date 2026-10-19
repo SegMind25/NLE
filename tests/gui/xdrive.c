@@ -8,6 +8,10 @@
  * Commands run in order: wait MS, sleep MS, shot FILE.ppm, click X Y [1|2|3], move X Y,
  * drag X1 Y1 X2 Y2, key KEYSYM, type TEXT, close, title TEXT (look for another window from now on),
  * expect-window (exit 3 unless the window exists).
+ *
+ * Two commands go through the X server like a real pointer, so grabs and pop-up windows behave as for a
+ * user (they need libXtst): fclick X Y [1|2|3] clicks at a position given relative to the window (it may lie
+ * outside it, over a pop-up), and rshot FILE.ppm captures the whole screen.
  */
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -19,6 +23,16 @@
 
 static Display *dpy;
 static Window root;
+
+/* libXtst has no development headers on most systems; these two prototypes are all that is used.
+ * Build with -DNO_XTEST (and without -lXtst) where it is not installed: fclick then fails with status 5. */
+#ifdef NO_XTEST
+static int XTestFakeMotionEvent(Display *d, int s, int x, int y, unsigned long t) { (void)d; (void)s; (void)x; (void)y; (void)t; exit(5); }
+static int XTestFakeButtonEvent(Display *d, unsigned int b, Bool p, unsigned long t) { (void)d; (void)b; (void)p; (void)t; exit(5); }
+#else
+extern int XTestFakeMotionEvent(Display *, int, int, int, unsigned long);
+extern int XTestFakeButtonEvent(Display *, unsigned int, Bool, unsigned long);
+#endif
 
 static int title_matches(Window w, const char *needle) {
     char *name = NULL;
@@ -117,6 +131,21 @@ static int shot(Window win, const char *path) {
     return 0;
 }
 
+static void fake_click(Window win, int x, int y, int button) {
+    int rx, ry;
+    Window child;
+    XTranslateCoordinates(dpy, win, root, x, y, &rx, &ry, &child);
+    XTestFakeMotionEvent(dpy, -1, rx, ry, 0);
+    XFlush(dpy);
+    usleep(80000);
+    XTestFakeButtonEvent(dpy, button, True, 0);
+    XFlush(dpy);
+    usleep(80000);
+    XTestFakeButtonEvent(dpy, button, False, 0);
+    XFlush(dpy);
+    usleep(120000);
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: xdrive TITLE command...\n");
@@ -164,6 +193,12 @@ int main(int argc, char **argv) {
                 send_motion(win, x, y);
                 send_button(win, x, y, b, 1);
                 send_button(win, x, y, b, 0);
+            } else if (!strcmp(c, "fclick")) {
+                int x = atoi(argv[++i]), y = atoi(argv[++i]), b = 1;
+                if (i + 1 < argc && argv[i + 1][0] >= '1' && argv[i + 1][0] <= '3' && !argv[i + 1][1]) b = atoi(argv[++i]);
+                fake_click(win, x, y, b);
+            } else if (!strcmp(c, "rshot")) {
+                if (shot(root, argv[++i])) return 4;
             } else if (!strcmp(c, "drag")) {
                 int x1 = atoi(argv[++i]), y1 = atoi(argv[++i]), x2 = atoi(argv[++i]), y2 = atoi(argv[++i]);
                 send_motion(win, x1, y1);

@@ -1,7 +1,7 @@
 //! Message queues and the pump: posting and sending messages, timers, turning display events
 //! into messages, `GetMessage` / `PeekMessage`, dispatch, and the default window procedure.
 
-use super::backend::{Cursor, Event, ScriptAction};
+use super::backend::{Cursor, Event, ScriptAction, SCREEN};
 use super::surface::Rect;
 use super::*;
 use crate::runtime::handles::current_tid;
@@ -150,6 +150,7 @@ impl Gui {
         let mut out = Out::default();
         let now = self.tick();
         for ev in events {
+            let ev = self.localize(ev);
             match ev {
                 Event::Expose { win, rect } => {
                     let h = self.resolve_native(win);
@@ -162,15 +163,15 @@ impl Gui {
                 Event::Configure { win, x, y, w, h } => {
                     let hwnd = self.resolve_native(win);
                     let Some(wnd) = self.windows.get(&hwnd) else { continue };
-                    let i = wnd.inset();
-                    let (cw, ch) = wnd.client_size();
+                    let f = wnd.frame();
+                    let native = wnd.native_size();
                     let old = wnd.rect;
-                    let (nl, nt) = if x == i32::MIN { (old.l, old.t) } else { (x - i.l, y - i.t) };
-                    let new = Rect::new(nl, nt, nl + w + i.l + i.r, nt + h + i.t + i.b);
+                    let (nl, nt) = if x == i32::MIN { (old.l, old.t) } else { (x - f.l, y - f.t) };
+                    let new = Rect::new(nl, nt, nl + w + f.l + f.r, nt + h + f.t + f.b);
                     if new == old {
                         continue;
                     }
-                    let resized = (cw, ch) != (w, h);
+                    let resized = native != (w, h);
                     let moved = (old.l, old.t) != (new.l, new.t);
                     let from_script = x == i32::MIN;
                     if from_script {
@@ -180,10 +181,12 @@ impl Gui {
                     }
                     let tid = self.windows.get(&hwnd).map_or(0, |w| w.thread);
                     if resized {
-                        self.post_to_thread(tid, Msg { hwnd, message: WM_SIZE, wparam: 0, lparam: make_lparam(w, h), time: now, pt: self.pointer });
+                        let (cw, ch) = self.windows.get(&hwnd).map_or((w, h), |w| w.client_size());
+                        self.post_to_thread(tid, Msg { hwnd, message: WM_SIZE, wparam: 0, lparam: make_lparam(cw, ch), time: now, pt: self.pointer });
                     }
                     if moved {
-                        self.post_to_thread(tid, Msg { hwnd, message: WM_MOVE, wparam: 0, lparam: make_lparam(new.l + i.l, new.t + i.t), time: now, pt: self.pointer });
+                        let (mx, my) = self.client_to_screen(hwnd, 0, 0);
+                        self.post_to_thread(tid, Msg { hwnd, message: WM_MOVE, wparam: 0, lparam: make_lparam(mx, my), time: now, pt: self.pointer });
                     }
                 }
                 Event::Close { win } => {
@@ -228,6 +231,13 @@ impl Gui {
                         continue;
                     }
                     let (h, lx, ly) = self.route_mouse(top, x, y);
+                    self.pointer = self.client_to_screen(h, lx, ly);
+                    if self.nc_button(h, lx, ly, button, down, &mut out) {
+                        if down && self.activatable(top) {
+                            out.activate = Some(top);
+                        }
+                        continue;
+                    }
                     let bit = match button {
                         3 => 2,
                         2 => 4,
@@ -253,7 +263,10 @@ impl Gui {
                         base_up
                     };
                     if down {
-                        out.activate = Some(self.top_level_of(h));
+                        let t = self.top_level_of(h);
+                        if self.activatable(t) {
+                            out.activate = Some(t);
+                        }
                     }
                     let tid = self.windows.get(&h).map_or(0, |w| w.thread);
                     let flags = self.mouse_flags();
@@ -269,6 +282,15 @@ impl Gui {
                     let moved = self.pointer != scr;
                     self.pointer = scr;
                     if !moved {
+                        continue;
+                    }
+                    if self.hover != h {
+                        let old = std::mem::replace(&mut self.hover, h);
+                        if self.windows.get_mut(&old).is_some_and(|w| std::mem::replace(&mut w.track_leave, false)) {
+                            out.sends.push(Msg { hwnd: old, message: WM_MOUSELEAVE, wparam: 0, lparam: 0, time: now, pt: scr });
+                        }
+                    }
+                    if self.nc_motion(h, lx, ly, &mut out) {
                         continue;
                     }
                     let tid = self.windows.get(&h).map_or(0, |w| w.thread);
@@ -293,7 +315,9 @@ impl Gui {
                         continue;
                     }
                     if gained {
-                        out.activate = Some(top);
+                        if self.activatable(top) {
+                            out.activate = Some(top);
+                        }
                     } else if self.active == top {
                         out.deactivate = Some(top);
                     }
@@ -319,6 +343,53 @@ impl Gui {
             }
         }
         out
+    }
+
+    /// Menus and drop-down lists (`WS_EX_NOACTIVATE`) never take the focus away from the window they serve.
+    pub fn activatable(&self, top: usize) -> bool {
+        self.windows.get(&top).is_none_or(|w| w.ex_style & WS_EX_NOACTIVATE == 0)
+    }
+
+    /// The top-level window at a screen point, newest first (so popups win over what they cover).
+    pub fn top_at_screen(&self, x: i32, y: i32) -> Option<usize> {
+        self.windows
+            .values()
+            .filter(|w| w.parent == 0 && w.visible_flag() && !w.minimized && w.native != 0)
+            .filter(|w| {
+                let (sx, sy) = self.top_client_screen(w.hwnd);
+                let (nw, nh) = w.native_size();
+                x >= sx && y >= sy && x < sx + nw && y < sy + nh
+            })
+            .map(|w| w.hwnd)
+            .max()
+    }
+
+    /// Events whose `win` is `SCREEN` carry screen coordinates; this turns them into ordinary window events.
+    fn localize(&self, ev: Event) -> Event {
+        let fix = |x: i32, y: i32| -> (u64, i32, i32) {
+            match self.top_at_screen(x, y).or_else(|| Some(self.main_window()).filter(|h| *h != 0)) {
+                Some(top) => {
+                    let (sx, sy) = self.top_client_screen(top);
+                    (self.windows.get(&top).map_or(0, |w| w.native), x - sx, y - sy)
+                }
+                None => (0, x, y),
+            }
+        };
+        match ev {
+            Event::Button { win: SCREEN, button, down, x, y } => {
+                let (win, x, y) = fix(x, y);
+                Event::Button { win, button, down, x, y }
+            }
+            Event::Motion { win: SCREEN, x, y } => {
+                let (win, x, y) = fix(x, y);
+                Event::Motion { win, x, y }
+            }
+            Event::Wheel { win: SCREEN, delta, x, y } => {
+                let (win, x, y) = fix(x, y);
+                Event::Wheel { win, delta, x, y }
+            }
+            other => other,
+        }
     }
 
     fn set_key(&mut self, vk: u32, down: bool) {
@@ -349,6 +420,13 @@ impl Gui {
             }
         }
         self.hit_test(top, x, y)
+    }
+
+    /// `TrackMouseEvent(TME_LEAVE)`: the window gets `WM_MOUSELEAVE` when the pointer moves to another window.
+    pub fn track_leave(&mut self, h: usize) {
+        if let Some(w) = self.windows.get_mut(&h) {
+            w.track_leave = true;
+        }
     }
 
     /// Like `set_rect` but does not tell the display (the display is where the change came from).
@@ -675,6 +753,11 @@ pub unsafe fn def_window_proc(hwnd: usize, msg: u32, wp: usize, lp: isize, ansi:
             } else {
                 0
             }
+        }
+        WM_TIMER if wp == super::nc::SB_REPEAT_TIMER => {
+            let out = with(|g| g.nc_repeat(hwnd));
+            finish(out);
+            0
         }
         WM_NCHITTEST => 1,
         WM_MOUSEACTIVATE => 1,

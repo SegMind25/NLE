@@ -352,12 +352,105 @@ unsafe fn load_cursor(inst: usize, name: usize) -> usize {
     if inst == 0 && name < 0x10000 {
         stub_handle(1, name as u32)
     } else {
+        // a cursor from the program's resources: the pointer shape is the arrow
         stub_handle(1, 32512)
     }
 }
 
-unsafe fn load_icon(_inst: usize, name: usize) -> usize {
-    stub_handle(2, if name < 0x10000 { name as u32 } else { 32512 })
+fn icon_object(img: Option<crate::gui::res::IconImage>, stock: u32) -> usize {
+    match img {
+        Some(i) => with(|g| g.add_object(Object::Icon(std::sync::Arc::new(i)))),
+        None => stub_handle(2, stock),
+    }
+}
+
+/// `LoadIcon`: a stock icon for module 0, otherwise the group icon from the module's resources.
+unsafe fn load_icon(inst: usize, name: usize, wide: bool) -> usize {
+    if inst == 0 {
+        return stub_handle(2, if name < 0x10000 { name as u32 } else { 32512 });
+    }
+    icon_object(crate::gui::res::load_icon_image(inst, &crate::gui::res::Key::from_arg(name, wide), 32), 32512)
+}
+
+fn bitmap_object(s: Option<crate::gui::surface::Surface>) -> usize {
+    match s {
+        Some(surf) => with(|g| g.add_object(Object::Bitmap(crate::gui::gdi::Bitmap { surf, bpp: 32, bits: 0 }))),
+        None => 0,
+    }
+}
+
+unsafe fn load_bitmap(inst: usize, name: usize, wide: bool) -> usize {
+    use crate::gui::res::{self, Key};
+    if inst == 0 {
+        // the built-in OEM bitmaps (check marks, arrows) are not drawn; a small blank one stands in
+        return bitmap_object(Some(crate::gui::surface::Surface::new(16, 16)));
+    }
+    bitmap_object(res::load(inst, res::RT_BITMAP, &Key::from_arg(name, wide)).and_then(res::bitmap_from_dib))
+}
+
+/// `LoadImage` for bitmaps and icons, from a module's resources or (with `LR_LOADFROMFILE`) from a file.
+unsafe fn load_image(inst: usize, name: usize, kind: u32, cx: i32, _cy: i32, flags: u32, wide: bool) -> usize {
+    use crate::gui::res::{self, Key};
+    const LR_LOADFROMFILE: u32 = 0x10;
+    const LR_DEFAULTSIZE: u32 = 0x40;
+    let from_file = flags & LR_LOADFROMFILE != 0;
+    let file = || -> Option<Vec<u8>> {
+        let path = text_arg(name, wide);
+        std::fs::read(crate::runtime::paths::resolve(&path)).ok()
+    };
+    let want = if cx > 0 { cx } else if flags & LR_DEFAULTSIZE != 0 || kind != 0 { 32 } else { 0 };
+    match kind {
+        0 => {
+            if from_file {
+                bitmap_object(file().and_then(|d| res::bitmap_from_file(&d)))
+            } else {
+                load_bitmap(inst, name, wide)
+            }
+        }
+        1 => {
+            let img = if from_file { file().and_then(|d| res::icon_from_file(&d, want)) } else if inst != 0 { res::load_icon_image(inst, &Key::from_arg(name, wide), want) } else { None };
+            icon_object(img, 32512)
+        }
+        2 => stub_handle(1, if inst == 0 && name < 0x10000 { name as u32 } else { 32512 }),
+        _ => 0,
+    }
+}
+
+unsafe fn load_string_w(inst: usize, id: u32, buf: *mut u16, max: i32) -> i32 {
+    let Some(units) = crate::gui::res::load_string(inst, id) else { return 0 };
+    if max == 0 {
+        // a zero-sized buffer asks for a pointer to the string itself
+        let leaked: &'static mut [u16] = Box::leak(units.into_boxed_slice());
+        *(buf as *mut usize) = leaked.as_ptr() as usize;
+        return leaked.len() as i32;
+    }
+    if buf.is_null() || max < 0 {
+        return 0;
+    }
+    let n = units.len().min(max as usize - 1);
+    std::ptr::copy_nonoverlapping(units.as_ptr(), buf, n);
+    *buf.add(n) = 0;
+    n as i32
+}
+
+unsafe fn load_string_a(inst: usize, id: u32, buf: *mut u8, max: i32) -> i32 {
+    let Some(units) = crate::gui::res::load_string(inst, id) else { return 0 };
+    let text = String::from_utf16_lossy(&units).into_bytes();
+    if max == 0 {
+        let leaked: &'static mut [u8] = Box::leak(text.into_boxed_slice());
+        *(buf as *mut usize) = leaked.as_ptr() as usize;
+        return leaked.len() as i32;
+    }
+    if buf.is_null() || max < 0 {
+        return 0;
+    }
+    let mut n = text.len().min(max as usize - 1);
+    while n > 0 && n < text.len() && text[n] & 0xC0 == 0x80 {
+        n -= 1;
+    }
+    std::ptr::copy_nonoverlapping(text.as_ptr(), buf, n);
+    *buf.add(n) = 0;
+    n as i32
 }
 
 // ---- metrics ------------------------------------------------------------------------------------------
@@ -1159,21 +1252,65 @@ crate::shims! { "user32" => USER32_SHIMS;
         load_cursor(inst, name)
     }
     fn LoadIconA(inst: usize, name: usize) -> usize {
-        load_icon(inst, name)
+        load_icon(inst, name, false)
     }
     fn LoadIconW(inst: usize, name: usize) -> usize {
-        load_icon(inst, name)
+        load_icon(inst, name, true)
+    }
+    fn LoadBitmapA(inst: usize, name: usize) -> usize {
+        load_bitmap(inst, name, false)
+    }
+    fn LoadBitmapW(inst: usize, name: usize) -> usize {
+        load_bitmap(inst, name, true)
+    }
+    fn LoadImageA(inst: usize, name: usize, kind: u32, cx: i32, cy: i32, flags: u32) -> usize {
+        load_image(inst, name, kind, cx, cy, flags, false)
+    }
+    fn LoadImageW(inst: usize, name: usize, kind: u32, cx: i32, cy: i32, flags: u32) -> usize {
+        load_image(inst, name, kind, cx, cy, flags, true)
+    }
+    fn LoadStringA(inst: usize, id: u32, buf: *mut u8, max: i32) -> i32 {
+        load_string_a(inst, id, buf, max)
+    }
+    fn LoadStringW(inst: usize, id: u32, buf: *mut u16, max: i32) -> i32 {
+        load_string_w(inst, id, buf, max)
     }
     fn DestroyCursor(_h: usize) -> BOOL {
         TRUE
     }
-    fn DestroyIcon(_h: usize) -> BOOL {
+    fn DestroyIcon(h: usize) -> BOOL {
+        with(|g| {
+            if matches!(g.objects.get(&h), Some(Object::Icon(_))) {
+                g.objects.remove(&h);
+            }
+        });
         TRUE
     }
     fn CopyIcon(h: usize) -> usize {
-        h
+        with(|g| match g.objects.get(&h) {
+            Some(Object::Icon(i)) => {
+                let copy = i.clone();
+                g.add_object(Object::Icon(copy))
+            }
+            _ => h,
+        })
     }
-    fn TrackMouseEvent(_t: *mut u8) -> BOOL {
+    fn TrackMouseEvent(t: *mut u8) -> BOOL {
+        // TRACKMOUSEEVENT { cbSize, dwFlags, hwndTrack, dwHoverTime }
+        if t.is_null() {
+            return FALSE;
+        }
+        let flags = *(t.add(4) as *const u32);
+        let h = *(t.add(8) as *const u64) as usize;
+        with(|g| {
+            if let Some(w) = g.windows.get_mut(&h) {
+                if flags & 0x8000_0000 != 0 {
+                    w.track_leave = false;
+                } else if flags & 2 != 0 {
+                    w.track_leave = true;
+                }
+            }
+        });
         TRUE
     }
     fn GetDoubleClickTime() -> u32 {
@@ -1403,11 +1540,58 @@ crate::shims! { "user32" => USER32_SHIMS;
     fn DrawTextExW(hdc: usize, text: usize, n: i32, r: *mut i32, flags: u32, _p: usize) -> i32 {
         draw_text(hdc, text, n, r, flags, true)
     }
-    fn DrawIcon(_hdc: usize, _x: i32, _y: i32, _icon: usize) -> BOOL {
-        TRUE
+    fn DrawIcon(hdc: usize, x: i32, y: i32, icon: usize) -> BOOL {
+        with(|g| g.draw_icon(hdc, x, y, icon, 0, 0)) as BOOL
     }
-    fn DrawIconEx(_hdc: usize, _x: i32, _y: i32, _icon: usize, _w: i32, _h: i32, _step: u32, _brush: usize, _flags: u32) -> BOOL {
-        TRUE
+    fn DrawIconEx(hdc: usize, x: i32, y: i32, icon: usize, w: i32, h: i32, _step: u32, _brush: usize, _flags: u32) -> BOOL {
+        with(|g| g.draw_icon(hdc, x, y, icon, w, h)) as BOOL
+    }
+
+    // ---- scroll bars ----
+    fn SetScrollInfo(h: usize, bar: i32, info: *const u8, redraw: BOOL) -> i32 {
+        api::set_scroll_info(h, bar, info, redraw != 0)
+    }
+    fn GetScrollInfo(h: usize, bar: i32, info: *mut u8) -> BOOL {
+        api::get_scroll_info(h, bar, info) as BOOL
+    }
+    fn SetScrollPos(h: usize, bar: i32, pos: i32, redraw: BOOL) -> i32 {
+        api::set_scroll_pos(h, bar, pos, redraw != 0)
+    }
+    fn GetScrollPos(h: usize, bar: i32) -> i32 {
+        with(|g| g.windows.get(&h).and_then(|w| w.sb.get(bar).map(|b| b.pos))).unwrap_or(0)
+    }
+    fn SetScrollRange(h: usize, bar: i32, min: i32, max: i32, redraw: BOOL) -> BOOL {
+        api::set_scroll_range(h, bar, min, max, redraw != 0) as BOOL
+    }
+    fn GetScrollRange(h: usize, bar: i32, min: *mut i32, max: *mut i32) -> BOOL {
+        match with(|g| g.windows.get(&h).and_then(|w| w.sb.get(bar).copied())) {
+            Some(b) => {
+                if !min.is_null() {
+                    *min = b.min;
+                }
+                if !max.is_null() {
+                    *max = b.max;
+                }
+                TRUE
+            }
+            None => FALSE,
+        }
+    }
+    fn ShowScrollBar(h: usize, bar: i32, show: BOOL) -> BOOL {
+        api::show_scroll_bar(h, bar, show != 0) as BOOL
+    }
+    fn EnableScrollBar(h: usize, bar: i32, arrows: u32) -> BOOL {
+        api::enable_scroll_bar(h, bar, arrows) as BOOL
+    }
+    fn ScrollWindow(h: usize, dx: i32, dy: i32, area: *const i32, _clip: *const i32) -> BOOL {
+        api::scroll_window(h, dx, dy, if area.is_null() { None } else { Some(rect_from(area)) }) as BOOL
+    }
+    fn ScrollWindowEx(h: usize, dx: i32, dy: i32, area: *const i32, _clip: *const i32, _rgn: usize, update: *mut i32, _flags: u32) -> i32 {
+        let ok = api::scroll_window(h, dx, dy, if area.is_null() { None } else { Some(rect_from(area)) });
+        if !update.is_null() {
+            rect_to(update, with(|g| g.windows.get(&h).map(|w| w.update).unwrap_or_default()));
+        }
+        if ok { 1 } else { 0 }
     }
 
     // ---- rectangles ----
@@ -1611,6 +1795,8 @@ fn class_long(h: usize, index: i32) -> usize {
 }
 
 unsafe fn adjust_rect(r: *mut i32, style: u32, menu: BOOL, ex: u32) -> BOOL {
+    // scroll bars are not part of the calculation, as on Windows
+    let style = style & !(gui::WS_VSCROLL | gui::WS_HSCROLL);
     let i = gui::wm::insets(style, ex, menu != 0, style & WS_CHILD == 0);
     let v = rect_from(r);
     rect_to(r, Rect::new(v.l - i.l, v.t - i.t, v.r + i.r, v.b + i.b));

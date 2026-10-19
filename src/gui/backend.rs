@@ -16,9 +16,14 @@ pub struct WinSpec {
     pub decorated: bool,
     pub tool: bool,
     pub topmost: bool,
+    /// A menu or drop-down list: shown without the window manager's involvement and without taking focus.
+    pub popup: bool,
     /// Native id of the owner, so dialogs stay in front of it.
     pub transient_for: Option<u64>,
 }
+
+/// In an event's `win`: the coordinates are screen coordinates and the window system finds the window under them.
+pub const SCREEN: u64 = u64::MAX;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cursor {

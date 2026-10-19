@@ -88,7 +88,7 @@ pub unsafe fn create_window_ex(a: CreateArgs) -> usize {
         return 0;
     }
     // the window now exists; Windows reports its geometry once
-    let geometry = with(|g| g.windows.get(&hwnd).map(|w| (w.client_size(), g.top_client_screen(hwnd), w.is_top_level(), w.rect, w.inset())));
+    let geometry = with(|g| g.windows.get(&hwnd).map(|w| (w.client_size(), g.client_to_screen(hwnd, 0, 0), w.is_top_level(), w.rect, w.inset())));
     if let Some(((cw, ch), (sx, sy), top, rect, inset)) = geometry {
         send_message(hwnd, WM_SIZE, 0, make_lparam(cw, ch), ansi);
         let (mx, my) = if top { (sx, sy) } else { (rect.l + inset.l, rect.t + inset.t) };
@@ -197,8 +197,8 @@ pub unsafe fn show_window(h: usize, cmd: i32) -> bool {
                     w.restore_rect = Some(w.rect);
                     w.maximized = true;
                     w.minimized = false;
-                    let i = w.inset();
-                    resize = Some(Rect::new(-i.l, -i.t, screen.0 + i.r, screen.1 + i.b));
+                    let f = w.frame();
+                    resize = Some(Rect::new(-f.l, -f.t, screen.0 + f.r, screen.1 + f.b));
                 } else if p.minimize {
                     w.minimized = true;
                 } else if p.restore || (p.visible && !p.maximize && !p.minimize) {
@@ -328,8 +328,8 @@ pub unsafe fn set_window_pos(h: usize, x: i32, y: i32, cx: i32, cy: i32, flags: 
             send(h, WM_SIZE, 0, make_lparam(cw, ch));
         }
         if (old.l, old.t) != (new.l, new.t) {
-            let _ = top;
-            send(h, WM_MOVE, 0, make_lparam(new.l + i.l, new.t + i.t));
+            let (mx, my) = if top { with(|g| g.client_to_screen(h, 0, 0)) } else { (new.l + i.l, new.t + i.t) };
+            send(h, WM_MOVE, 0, make_lparam(mx, my));
         }
     }
     if flags & NOZORDER == 0 {
@@ -375,6 +375,7 @@ pub fn cursor_kind(hcursor: usize) -> Cursor {
 /// `BeginPaint`: erases the invalid area if needed, validates it, and returns a DC clipped to it.
 pub unsafe fn begin_paint(h: usize, ps: *mut u8) -> usize {
     let taken = with(|g| {
+        g.paint_nc(h);
         let w = g.windows.get_mut(&h)?;
         let rc = w.update;
         let erase = w.erase;
@@ -465,4 +466,161 @@ pub unsafe fn redraw_window(h: usize, rect: Option<Rect>, flags: u32) -> bool {
         }
     }
     true
+}
+
+// ---- scroll bars --------------------------------------------------------------------------------------
+
+use super::scroll::{SB_CTL, SIF_POS, SIF_RANGE};
+
+/// Finishes a scroll bar change: tells the window if its client area changed, and redraws.
+unsafe fn scroll_done(h: usize, which: i32, r: Option<(i32, bool)>, redraw: bool) -> (i32, bool) {
+    let Some((pos, changed)) = r else { return (0, false) };
+    if changed {
+        let (cw, ch) = with(|g| g.windows.get(&h).map_or((0, 0), |w| w.client_size()));
+        send(h, WM_SIZE, 0, make_lparam(cw, ch));
+    } else if redraw {
+        with(|g| {
+            if which == SB_CTL {
+                g.invalidate(h, None, false);
+            } else {
+                g.paint_nc(h);
+                g.flush();
+            }
+        });
+    }
+    (pos, changed)
+}
+
+/// `SetScrollInfo`; `info` is a `SCROLLINFO`. Returns the new position.
+pub unsafe fn set_scroll_info(h: usize, which: i32, info: *const u8, redraw: bool) -> i32 {
+    if info.is_null() {
+        return 0;
+    }
+    let rd = |o: usize| *(info.add(o) as *const i32);
+    let (mask, page) = (*(info.add(4) as *const u32), *(info.add(16) as *const u32));
+    let r = with(|g| g.scroll_set(h, which, mask, rd(8), rd(12), page, rd(20)));
+    scroll_done(h, which, r, redraw).0
+}
+
+/// `GetScrollInfo`: fills the `SCROLLINFO` fields its `fMask` selects.
+pub unsafe fn get_scroll_info(h: usize, which: i32, info: *mut u8) -> bool {
+    if info.is_null() {
+        return false;
+    }
+    let Some(bar) = with(|g| g.windows.get(&h).and_then(|w| w.sb.get(which).copied())) else { return false };
+    let mask = *(info.add(4) as *const u32);
+    let wr = |o: usize, v: i32| *(info.add(o) as *mut i32) = v;
+    if mask & super::scroll::SIF_RANGE != 0 {
+        wr(8, bar.min);
+        wr(12, bar.max);
+    }
+    if mask & super::scroll::SIF_PAGE != 0 {
+        *(info.add(16) as *mut u32) = bar.page;
+    }
+    if mask & SIF_POS != 0 {
+        wr(20, bar.pos);
+    }
+    if mask & super::scroll::SIF_TRACKPOS != 0 {
+        wr(24, bar.track);
+    }
+    true
+}
+
+/// `SetScrollPos`: returns the previous position.
+pub unsafe fn set_scroll_pos(h: usize, which: i32, pos: i32, redraw: bool) -> i32 {
+    let prev = with(|g| g.windows.get(&h).and_then(|w| w.sb.get(which).map(|b| b.pos))).unwrap_or(0);
+    let r = with(|g| g.scroll_set(h, which, SIF_POS, 0, 0, 0, pos));
+    scroll_done(h, which, r, redraw);
+    prev
+}
+
+/// `SetScrollRange`: a range that leaves nothing to scroll hides a window's bar.
+pub unsafe fn set_scroll_range(h: usize, which: i32, min: i32, max: i32, redraw: bool) -> bool {
+    let r = with(|g| g.scroll_set(h, which, SIF_RANGE, min, max, 0, 0));
+    scroll_done(h, which, r, redraw);
+    r.is_some()
+}
+
+pub unsafe fn show_scroll_bar(h: usize, which: i32, show: bool) -> bool {
+    let changed = with(|g| g.scroll_show(h, which, show));
+    if changed {
+        let (cw, ch) = with(|g| g.windows.get(&h).map_or((0, 0), |w| w.client_size()));
+        send(h, WM_SIZE, 0, make_lparam(cw, ch));
+    }
+    true
+}
+
+/// `EnableScrollBar`: `arrows` 0 enables both, 1 disables the up / left arrow, 2 the down / right one, 3 both.
+pub unsafe fn enable_scroll_bar(h: usize, which: i32, arrows: u32) -> bool {
+    let ok = with(|g| {
+        let Some(w) = g.windows.get_mut(&h) else { return false };
+        let targets: &[i32] = match which {
+            super::scroll::SB_BOTH => &[super::scroll::SB_HORZ, super::scroll::SB_VERT],
+            1 => &[super::scroll::SB_VERT],
+            0 => &[super::scroll::SB_HORZ],
+            _ => &[SB_CTL],
+        };
+        for t in targets {
+            if let Some(b) = w.sb.get_mut(*t) {
+                b.up_enabled = arrows & 1 == 0;
+                b.down_enabled = arrows & 2 == 0;
+            }
+        }
+        true
+    });
+    if ok {
+        with(|g| {
+            g.paint_nc(h);
+            g.invalidate(h, None, false);
+            g.flush();
+        });
+    }
+    ok
+}
+
+/// `ScrollWindow(Ex)`: moves the client pixels (or the part inside `area`) by (dx, dy), moves the child windows
+/// when the whole client area scrolls, and invalidates what was uncovered.
+pub unsafe fn scroll_window(h: usize, dx: i32, dy: i32, area: Option<Rect>) -> bool {
+    with(|g| {
+        let Some(w) = g.windows.get(&h) else { return false };
+        let (cw, ch) = w.client_size();
+        let client = Rect::new(0, 0, cw, ch);
+        let region = area.map_or(client, |a| a.normalized().intersect(&client));
+        if region.is_empty() {
+            return true;
+        }
+        let (ox, oy) = g.client_origin_in_top(h);
+        let top = g.top_level_of(h);
+        if let Some(s) = g.windows.get_mut(&top).and_then(|t| t.surface.as_mut()) {
+            let dst = region.offset(dx, dy).intersect(&region);
+            if !dst.is_empty() {
+                let src = dst.offset(-dx, -dy);
+                let mut copy = super::surface::Surface::new(src.width(), src.height());
+                for y in 0..src.height() {
+                    for x in 0..src.width() {
+                        copy.put(x, y, s.get(ox + src.l + x, oy + src.t + y));
+                    }
+                }
+                for y in 0..dst.height() {
+                    for x in 0..dst.width() {
+                        s.put(ox + dst.l + x, oy + dst.t + y, copy.get(x, y));
+                    }
+                }
+                s.mark(dst.offset(ox, oy));
+            }
+        }
+        let uncovered = super::gdi::rect_subtract(region, region.offset(dx, dy).intersect(&region));
+        if area.is_none() {
+            let kids: Vec<usize> = g.windows.get(&h).map(|w| w.children.clone()).unwrap_or_default();
+            for k in kids {
+                if let Some(c) = g.windows.get_mut(&k) {
+                    c.rect = c.rect.offset(dx, dy);
+                }
+            }
+        }
+        for r in uncovered {
+            g.invalidate(h, Some(r), true);
+        }
+        true
+    })
 }

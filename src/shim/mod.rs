@@ -16,6 +16,7 @@ pub mod k32_console;
 pub mod k32_file;
 pub mod k32_mem;
 pub mod k32_proc;
+pub mod k32_res;
 pub mod k32_spawn;
 pub mod k32_str;
 pub mod k32_sync;
@@ -35,6 +36,7 @@ pub fn tables() -> Vec<&'static [Shim]> {
         k32_file::SHIMS,
         k32_mem::SHIMS,
         k32_proc::SHIMS,
+        k32_res::SHIMS,
         k32_spawn::SPAWN_SHIMS,
         k32_spawn::WS2_SPAWN_SHIMS,
         k32_str::SHIMS,

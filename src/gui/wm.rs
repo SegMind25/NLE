@@ -56,12 +56,17 @@ pub struct Wnd {
     pub minimized: bool,
     pub restore_rect: Option<Rect>,
     pub cursor: Cursor,
+    pub sb: super::nc::Bars,
+    /// `TrackMouseEvent(TME_LEAVE)` is pending.
+    pub track_leave: bool,
 }
 
 // ---- metrics (Windows 10 look) -----------------------------------------------------------------
 
 pub const CAPTION_H: i32 = 23;
 pub const MENU_H: i32 = 20;
+/// Width of a scroll bar (and the height of a horizontal one).
+pub const SB_W: i32 = 17;
 
 pub fn frame_width(style: u32, ex: u32) -> i32 {
     if style & WS_THICKFRAME != 0 {
@@ -75,13 +80,32 @@ pub fn frame_width(style: u32, ex: u32) -> i32 {
     }
 }
 
+/// Menus and drop-down lists: top-level windows that the window manager does not decorate or manage, so their
+/// border is drawn here, inside the window.
+pub fn is_popup(style: u32, ex: u32) -> bool {
+    style & WS_POPUP != 0 && style & (WS_DLGFRAME | WS_THICKFRAME) == 0 && ex & WS_EX_NOACTIVATE != 0 && ex & WS_EX_TOOLWINDOW != 0
+}
+
+/// The frame and caption the display's window manager draws around a top-level window:
+/// (left, top, right, bottom). Everything inside it is ours.
+pub fn frame_inset(style: u32, ex: u32) -> Rect {
+    if is_popup(style, ex) {
+        return Rect::new(0, 0, 0, 0);
+    }
+    let f = frame_width(style, ex);
+    let caption = if style & WS_CAPTION == WS_CAPTION { CAPTION_H } else { 0 };
+    Rect::new(f, f + caption, f, f)
+}
+
 /// How far the client area sits inside the window's outer rectangle: (left, top, right, bottom).
+/// A menu bar takes the top, scroll bars take the right and bottom.
 pub fn insets(style: u32, ex: u32, has_menu: bool, top_level: bool) -> Rect {
-    if top_level {
-        let f = frame_width(style, ex);
-        let caption = if style & WS_CAPTION == WS_CAPTION { CAPTION_H } else { 0 };
+    let sbv = if style & WS_VSCROLL != 0 { SB_W } else { 0 };
+    let sbh = if style & WS_HSCROLL != 0 { SB_W } else { 0 };
+    if top_level && !is_popup(style, ex) {
+        let f = frame_inset(style, ex);
         let menu = if has_menu { MENU_H } else { 0 };
-        Rect::new(f, f + caption + menu, f, f)
+        Rect::new(f.l, f.t + menu, f.r + sbv, f.b + sbh)
     } else {
         let b = if ex & WS_EX_CLIENTEDGE != 0 {
             2
@@ -90,7 +114,7 @@ pub fn insets(style: u32, ex: u32, has_menu: bool, top_level: bool) -> Rect {
         } else {
             0
         };
-        Rect::new(b, b, b, b)
+        Rect::new(b, b, b + sbv, b + sbh)
     }
 }
 
@@ -101,6 +125,18 @@ impl Wnd {
 
     pub fn inset(&self) -> Rect {
         insets(self.style, self.ex_style, self.menu != 0, self.is_top_level())
+    }
+
+    /// The frame the window manager draws around a top-level window.
+    pub fn frame(&self) -> Rect {
+        frame_inset(self.style, self.ex_style)
+    }
+
+    /// Size of a top-level window's native window and surface: its outer size less the window manager's frame.
+    /// That holds the menu bar and scroll bars as well as the client area.
+    pub fn native_size(&self) -> (i32, i32) {
+        let f = self.frame();
+        ((self.rect.width() - f.l - f.r).max(1), (self.rect.height() - f.t - f.b).max(1))
     }
 
     pub fn client_size(&self) -> (i32, i32) {
@@ -222,13 +258,16 @@ impl Gui {
         false
     }
 
-    /// Client-area origin of `h` in the coordinates of its top-level window's surface.
+    /// Client-area origin of `h` in the coordinates of its top-level window's surface (which also holds the menu bar).
     pub fn client_origin_in_top(&self, h: usize) -> (i32, i32) {
         let (mut x, mut y) = (0, 0);
         let mut cur = h;
         while let Some(w) = self.windows.get(&cur) {
             let i = w.inset();
             if w.parent == 0 {
+                let f = w.frame();
+                x += i.l - f.l;
+                y += i.t - f.t;
                 break;
             }
             x += w.rect.l + i.l;
@@ -250,12 +289,12 @@ impl Gui {
         }
     }
 
-    /// Screen position of the top-level window's client area.
+    /// Screen position of the top-level window's surface (the native window), just inside the manager's frame.
     pub fn top_client_screen(&self, top: usize) -> (i32, i32) {
         match self.windows.get(&top) {
             Some(w) => {
-                let i = w.inset();
-                (w.rect.l + i.l, w.rect.t + i.t)
+                let f = w.frame();
+                (w.rect.l + f.l, w.rect.t + f.t)
             }
             None => (0, 0),
         }
@@ -322,7 +361,8 @@ impl Gui {
         r
     }
 
-    /// Deepest visible, enabled window containing the point (client coordinates of `top`).
+    /// Deepest visible, enabled window containing the point (surface coordinates of `top`); the result is in that
+    /// window's client coordinates, which lie outside its client rectangle when the point is on a menu bar or scroll bar.
     pub fn hit_test(&self, top: usize, x: i32, y: i32) -> (usize, i32, i32) {
         fn walk(g: &Gui, h: usize, x: i32, y: i32) -> (usize, i32, i32) {
             let Some(w) = g.windows.get(&h) else { return (h, x, y) };
@@ -343,7 +383,8 @@ impl Gui {
             }
             (h, x, y)
         }
-        walk(self, top, x, y)
+        let (ox, oy) = self.client_origin_in_top(top);
+        walk(self, top, x - ox, y - oy)
     }
 
     // ---- window creation and destruction (state only) -----------------------------------------------
@@ -369,10 +410,11 @@ impl Gui {
         let w = if a.w == CW_USEDEFAULT { if is_child { 100 } else { default_size.0 } } else { a.w };
         let h = if a.h == CW_USEDEFAULT { if is_child { 30 } else { default_size.1 } } else { a.h };
         let hwnd = self.alloc_handle();
-        let has_menu = false; // menu bars are drawn by `controls`; see Wnd::menu
+        let has_menu = false;
         let style = a.style & !WS_VISIBLE;
-        let inset = insets(style, a.ex_style, has_menu, !is_child);
-        let (cw, ch) = ((w - inset.l - inset.r).max(1), (h - inset.t - inset.b).max(1));
+        let _ = has_menu;
+        let frame = frame_inset(style, a.ex_style);
+        let (cw, ch) = ((w - frame.l - frame.r).max(1), (h - frame.t - frame.b).max(1));
         let mut wnd = Wnd {
             hwnd,
             class: class.clone(),
@@ -402,14 +444,16 @@ impl Gui {
             minimized: false,
             restore_rect: None,
             cursor: Cursor::Arrow,
+            sb: Default::default(),
+            track_leave: false,
         };
         wnd.unicode = if class.native { !a.ansi } else { class.unicode };
         if !is_child {
             let Some(backend) = self.ensure_backend() else { return Err(8) };
             let transient = self.windows.get(&owner).map(|o| o.native).filter(|n| *n != 0);
             let spec = WinSpec {
-                x: if explicit_pos { Some(x + inset.l) } else { None },
-                y: if explicit_pos { Some(y + inset.t) } else { None },
+                x: if explicit_pos { Some(x + frame.l) } else { None },
+                y: if explicit_pos { Some(y + frame.t) } else { None },
                 w: cw,
                 h: ch,
                 title: a.title.clone(),
@@ -417,6 +461,7 @@ impl Gui {
                 decorated: style & (WS_CAPTION | WS_THICKFRAME) != 0 || a.ex_style & WS_EX_DLGMODALFRAME != 0,
                 tool: a.ex_style & WS_EX_TOOLWINDOW != 0,
                 topmost: a.ex_style & WS_EX_TOPMOST != 0,
+                popup: is_popup(style, a.ex_style),
                 transient_for: transient,
             };
             wnd.native = backend.create_window(&spec);
@@ -590,20 +635,21 @@ impl Gui {
         let old = w.rect;
         w.rect = r;
         let (cw, ch) = w.client_size();
-        let i = w.inset();
+        let f = w.frame();
+        let (nw, nh) = w.native_size();
         if w.parent == 0 {
-            if old.width() != r.width() || old.height() != r.height() || w.surface.as_ref().is_none_or(|s| s.w != cw.max(1) || s.h != ch.max(1)) {
+            if old.width() != r.width() || old.height() != r.height() || w.surface.as_ref().is_none_or(|s| s.w != nw || s.h != nh) {
                 let bg = 0xffffff;
                 if let Some(s) = w.surface.take() {
-                    w.surface = Some(s.resized(cw.max(1), ch.max(1), bg));
+                    w.surface = Some(s.resized(nw, nh, bg));
                 }
                 w.update = Rect::new(0, 0, cw, ch);
                 w.erase = true;
             }
             if w.native != 0 {
                 if let Some(b) = &self.backend {
-                    b.move_resize(w.native, r.l + i.l, r.t + i.t, cw.max(1), ch.max(1));
-                    b.set_resizable(w.native, w.style & WS_THICKFRAME != 0, cw.max(1), ch.max(1));
+                    b.move_resize(w.native, r.l + f.l, r.t + f.t, nw, nh);
+                    b.set_resizable(w.native, w.style & WS_THICKFRAME != 0, nw, nh);
                 }
             }
         } else if old.width() != r.width() || old.height() != r.height() {
@@ -775,5 +821,7 @@ mod tests {
         assert_eq!(insets(0, WS_EX_CLIENTEDGE, false, false), Rect::new(2, 2, 2, 2));
         let o = insets(0x00CF_0000, 0, true, true);
         assert_eq!(o, Rect::new(8, 8 + 23 + 20, 8, 8));
+        // scroll bars take the right and bottom edges, inside any border
+        assert_eq!(insets(WS_VSCROLL | WS_HSCROLL, WS_EX_CLIENTEDGE, false, false), Rect::new(2, 2, 2 + SB_W, 2 + SB_W));
     }
 }

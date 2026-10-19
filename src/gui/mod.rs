@@ -5,6 +5,7 @@
 //! * `gdi` holds the GDI object model: device contexts, pens, brushes, fonts, bitmaps.
 //! * `wm` is the window manager: classes, windows, painting, focus, hit testing.
 //! * `msg` is the message pump: queues, timers, dispatch, and the default window procedure.
+//! * `res` reads the resources (strings, icons, bitmaps, ...) of loaded modules.
 //! * `controls` and `msgbox` are the built-in BUTTON / STATIC / EDIT classes and MessageBox.
 //! * `backend`, `x11` and `headless` get finished pixels on screen and bring input back.
 //!
@@ -14,12 +15,17 @@
 pub mod api;
 pub mod backend;
 pub mod controls;
+pub mod ctl_combo;
+pub mod ctl_list;
 pub mod font;
 pub mod gdi;
 pub mod headless;
 pub mod msg;
 pub mod msgbox;
+pub mod nc;
 pub mod png;
+pub mod res;
+pub mod scroll;
 pub mod surface;
 pub mod wm;
 pub mod x11;
@@ -55,6 +61,10 @@ pub const WM_GETMINMAXINFO: u32 = 0x0024;
 pub const WM_WINDOWPOSCHANGING: u32 = 0x0046;
 pub const WM_WINDOWPOSCHANGED: u32 = 0x0047;
 pub const WM_NOTIFY: u32 = 0x004E;
+pub const WM_DRAWITEM: u32 = 0x002B;
+pub const WM_MEASUREITEM: u32 = 0x002C;
+pub const WM_SETFONT: u32 = 0x0030;
+pub const WM_GETFONT: u32 = 0x0031;
 pub const WM_GETICON: u32 = 0x007F;
 pub const WM_SETICON: u32 = 0x0080;
 pub const WM_NCCREATE: u32 = 0x0081;
@@ -79,6 +89,7 @@ pub const WM_HSCROLL: u32 = 0x0114;
 pub const WM_VSCROLL: u32 = 0x0115;
 pub const WM_CTLCOLORMSGBOX: u32 = 0x0132;
 pub const WM_CTLCOLOREDIT: u32 = 0x0133;
+pub const WM_CTLCOLORLISTBOX: u32 = 0x0134;
 pub const WM_CTLCOLORBTN: u32 = 0x0135;
 pub const WM_CTLCOLORDLG: u32 = 0x0136;
 pub const WM_CTLCOLORSTATIC: u32 = 0x0138;
@@ -94,6 +105,7 @@ pub const WM_MBUTTONUP: u32 = 0x0208;
 pub const WM_MBUTTONDBLCLK: u32 = 0x0209;
 pub const WM_MOUSEWHEEL: u32 = 0x020A;
 pub const WM_CAPTURECHANGED: u32 = 0x0215;
+pub const WM_MOUSELEAVE: u32 = 0x02A3;
 pub const WM_USER: u32 = 0x0400;
 pub const WM_APP: u32 = 0x8000;
 
@@ -123,6 +135,7 @@ pub const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
 pub const WS_EX_WINDOWEDGE: u32 = 0x0000_0100;
 pub const WS_EX_CLIENTEDGE: u32 = 0x0000_0200;
 pub const WS_EX_STATICEDGE: u32 = 0x0002_0000;
+pub const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
 pub const CW_USEDEFAULT: i32 = i32::MIN;
 
 pub const SW_HIDE: i32 = 0;
@@ -174,6 +187,9 @@ pub struct Gui {
     pub stock: HashMap<i32, usize>,
     pub started: std::time::Instant,
     pub desktop: usize,
+    pub sb_drag: Option<nc::SbDrag>,
+    /// The window under the pointer, and the windows that asked to be told when it leaves them.
+    pub hover: usize,
 }
 
 impl Gui {
@@ -201,6 +217,8 @@ impl Gui {
             stock: HashMap::new(),
             started: std::time::Instant::now(),
             desktop: 0,
+            sb_drag: None,
+            hover: 0,
         };
         g.desktop = g.alloc_handle();
         gdi::init_stock(&mut g);

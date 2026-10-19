@@ -107,7 +107,9 @@ pub enum Object {
     Bitmap(Bitmap),
     Region(Vec<Rect>),
     Dc(Dc),
-    /// Icons, cursors, palettes and other objects that only need to exist.
+    /// An icon or cursor image loaded from a resource or file.
+    Icon(std::sync::Arc<super::res::IconImage>),
+    /// Stock cursors and icons, palettes and other objects that only need to exist.
     Stub(u32),
 }
 
@@ -756,6 +758,41 @@ impl Gui {
             Some(v) => (v.font.text_width(text), v.font.height()),
             None => (0, 0),
         }
+    }
+}
+
+impl Gui {
+    /// The rendered font behind a font handle (the default UI font when it is not one).
+    pub fn sized_font(&self, font: usize) -> Sized {
+        match self.objects.get(&font) {
+            Some(Object::Font(f)) => f.sized(),
+            _ => LogFont { height: -12, width: 0, weight: 400, italic: false, underline: false, strike: false, pitch_family: 0x22, face: "Segoe UI".into() }.sized(),
+        }
+    }
+
+    /// Draws an icon with its transparency at `(x, y)`, scaled to `cw` x `ch` when both are positive.
+    pub fn draw_icon(&mut self, hdc: usize, x: i32, y: i32, icon: usize, cw: i32, ch: i32) -> bool {
+        let img = match self.objects.get(&icon) {
+            Some(Object::Icon(i)) => i.clone(),
+            // a stock icon has no image: leave the area as it is
+            Some(Object::Stub(_)) => return true,
+            _ => return false,
+        };
+        let (dw, dh) = if cw > 0 && ch > 0 { (cw, ch) } else { (img.w, img.h) };
+        self.draw(hdc, |cv, _| {
+            for dy in 0..dh {
+                for dx in 0..dw {
+                    let i = ((dy * img.h / dh) * img.w + dx * img.w / dw) as usize;
+                    let a = img.alpha[i] as u32;
+                    if a == 0 || !cv.clip.contains(x + dx + cv.ox, y + dy + cv.oy) {
+                        continue;
+                    }
+                    let c = if a == 255 { img.rgb[i] } else { blend(cv.pixel(x + dx, y + dy), img.rgb[i], a) };
+                    cv.plot(x + dx, y + dy, c);
+                }
+            }
+        })
+        .is_some()
     }
 }
 

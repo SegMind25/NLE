@@ -63,6 +63,11 @@ fn built() -> Option<&'static Built> {
             let mut exe = std::fs::OpenOptions::new().append(true).open(dir.join("t_overlay.exe")).unwrap();
             exe.write_all(b"NLE-OVERLAY-MARKER!").unwrap();
         }
+        if let Some(windres) = tool("x86_64-w64-mingw32-windres") {
+            let rc = dir.join("t_resource_rc.o");
+            run(Command::new(windres).current_dir(&src).args(["t_resource.rc", "-O", "coff", "-o"]).arg(&rc));
+            run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_resource.exe")).arg(src.join("t_resource.c")).arg(&rc).arg("-lgdi32"));
+        }
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_net.exe")).arg(src.join("t_net.c")).arg("-lws2_32"));
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_registry.exe")).arg(src.join("t_registry.c")).arg("-lshlwapi"));
         run(Command::new(&gcc)
@@ -171,6 +176,7 @@ program_tests! {
     registry => case("t_registry");
     job_objects_and_search_path => case("t_job");
     reading_its_own_file => case("t_overlay");
+    resources => case("t_resource");
 }
 
 #[test]

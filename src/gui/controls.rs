@@ -12,9 +12,6 @@ use super::wm::Class;
 use super::*;
 
 // ---- messages and styles ---------------------------------------------------------------------------
-const WM_SETFONT: u32 = 0x30;
-const WM_GETFONT: u32 = 0x31;
-const WM_DRAWITEM: u32 = 0x2B;
 const WM_CUT: u32 = 0x300;
 const WM_COPY: u32 = 0x301;
 const WM_PASTE: u32 = 0x302;
@@ -74,6 +71,10 @@ pub enum Ctl {
     None,
     Button(ButtonState),
     Edit(EditState),
+    List(Box<super::ctl_list::ListState>),
+    Combo(Box<super::ctl_combo::ComboState>),
+    /// A SCROLLBAR control: where in the thumb the mouse took hold, and whether the thumb is being dragged.
+    Scroll { grab: i32, dragging: bool },
 }
 
 #[derive(Default, Clone)]
@@ -115,7 +116,14 @@ const EDGE_OFF: u32 = 0xBFBFBF;
 const TEXT_OFF: u32 = 0x838383;
 
 pub fn register_builtin_classes(g: &mut Gui) {
-    let classes: [(&str, usize, u32); 3] = [("BUTTON", button_proc as *const () as usize, 0x8), ("STATIC", static_proc as *const () as usize, 0), ("EDIT", edit_proc as *const () as usize, 0x8)];
+    let classes: [(&str, usize, u32); 6] = [
+        ("BUTTON", button_proc as *const () as usize, 0x8),
+        ("STATIC", static_proc as *const () as usize, 0),
+        ("EDIT", edit_proc as *const () as usize, 0x8),
+        ("SCROLLBAR", super::ctl_list::scrollbar_proc as *const () as usize, 0),
+        ("LISTBOX", super::ctl_list::listbox_proc as *const () as usize, 0x8),
+        ("COMBOBOX", super::ctl_combo::combobox_proc as *const () as usize, 0x8),
+    ];
     for (name, proc_, style) in classes {
         g.register_class(Class { name: name.into(), atom: 0, style, wndproc: proc_, cls_extra: 0, wnd_extra: 0, hinstance: 0, icon: 0, cursor: 0, background: 0, menu_name: None, unicode: true, native: true });
     }
@@ -123,19 +131,19 @@ pub fn register_builtin_classes(g: &mut Gui) {
 
 // ---- helpers ---------------------------------------------------------------------------------------
 
-fn default_font(g: &Gui) -> usize {
+pub(super) fn default_font(g: &Gui) -> usize {
     g.stock_object(17)
 }
 
 /// The control's font handle (`WM_SETFONT`) or the default UI font.
-fn font_of(g: &Gui, h: usize) -> usize {
+pub(super) fn font_of(g: &Gui, h: usize) -> usize {
     match g.windows.get(&h) {
         Some(w) if w.font != 0 => w.font,
         _ => default_font(g),
     }
 }
 
-unsafe fn notify_parent(h: usize, code: u32) {
+pub(super) unsafe fn notify_parent(h: usize, code: u32) {
     let info = with(|g| g.windows.get(&h).map(|w| (w.parent, w.id)));
     if let Some((parent, id)) = info {
         if parent != 0 {
@@ -144,7 +152,7 @@ unsafe fn notify_parent(h: usize, code: u32) {
     }
 }
 
-fn client_rect(g: &Gui, h: usize) -> Rect {
+pub(super) fn client_rect(g: &Gui, h: usize) -> Rect {
     let (w, hh) = g.windows.get(&h).map_or((0, 0), |w| w.client_size());
     Rect::new(0, 0, w, hh)
 }
@@ -174,7 +182,7 @@ fn set_text(g: &mut Gui, h: usize, t: String) {
     }
 }
 
-fn dotted_focus(cv: &mut Canvas, r: Rect) {
+pub(super) fn dotted_focus(cv: &mut Canvas, r: Rect) {
     let pen = Pen { style: PenStyle::Dot, width: 1, color: 0 };
     cv.line(r.l, r.t, r.r - 1, r.t, &pen);
     cv.line(r.r - 1, r.t, r.r - 1, r.b - 1, &pen);
@@ -429,8 +437,18 @@ pub unsafe extern "win64" fn button_proc(h: usize, msg: u32, wp: usize, lp: isiz
             });
             0
         }
+        WM_MOUSELEAVE => {
+            with(|g| {
+                if let Some(Ctl::Button(b)) = g.windows.get_mut(&h).map(|w| &mut w.ctl) {
+                    b.hot = false;
+                }
+                g.invalidate(h, None, true);
+            });
+            0
+        }
         WM_MOUSEMOVE => {
             with(|g| {
+                g.track_leave(h);
                 let inside = is_inside(g, h, lp);
                 let captured = g.capture == h;
                 let mut changed = false;
@@ -1077,6 +1095,17 @@ unsafe fn edit_scroll_to_caret(h: usize) {
     });
 }
 
+/// The combo box whose edit this is, or 0.
+fn combo_parent(h: usize) -> usize {
+    with(|g| {
+        let p = g.windows.get(&h).map_or(0, |w| w.parent);
+        match g.windows.get(&p) {
+            Some(pw) if pw.class.native && pw.class.name == "COMBOBOX" => p,
+            _ => 0,
+        }
+    })
+}
+
 pub unsafe extern "win64" fn edit_proc(h: usize, msg: u32, wp: usize, lp: isize) -> isize {
     match msg {
         WM_NCCREATE => {
@@ -1192,6 +1221,13 @@ pub unsafe extern "win64" fn edit_proc(h: usize, msg: u32, wp: usize, lp: isize)
                 }
             }
             edit_scroll_to_caret(h);
+            0
+        }
+        WM_KEYDOWN if matches!(wp, 0x26 | 0x28 | 0x21 | 0x22 | 0x73 | 0x0D | 0x1B) && combo_parent(h) != 0 => {
+            // the edit of a combo box hands list navigation to the combo box
+            let combo = combo_parent(h);
+            let handled = api::send(combo, msg, wp, lp);
+            let _ = handled;
             0
         }
         WM_KEYDOWN => {
