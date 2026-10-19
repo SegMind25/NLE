@@ -676,6 +676,20 @@ pub unsafe fn dispatch(m: &Msg) -> isize {
 }
 
 impl Gui {
+    /// Queues the character message of a key press. It goes ahead of the keys that came in after the press: on
+    /// Windows those are still waiting in the system input queue while the character is a posted message, so "E v e"
+    /// followed by Tab is seen as three characters and then the Tab, whatever the program was doing meanwhile.
+    pub fn post_char(&mut self, hwnd: usize, message: u32, wparam: usize, lparam: isize) {
+        let Some(tid) = self.windows.get(&hwnd).map(|w| w.thread) else { return };
+        let (x, y) = self.pointer;
+        let time = self.tick();
+        let m = Msg { hwnd, message, wparam, lparam, time, pt: (x, y) };
+        let t = self.thread_state(tid);
+        let at = t.queue.iter().position(|q| matches!(q.message, WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP | WM_CHAR | WM_SYSCHAR)).unwrap_or(t.queue.len());
+        t.queue.insert(at, m);
+        self.wake(tid);
+    }
+
     /// Keyboard messages go to the window that has the focus when the program fetches them, not when the key arrived:
     /// a program that is busy while "Tab" and then "Space" come in must see the Space on the control the Tab moved to.
     pub fn retarget_key(&self, m: &mut Msg) {
@@ -702,7 +716,7 @@ pub fn translate(m: &Msg) -> bool {
         let ctrl = g.keys[0x11] & 0x80 != 0;
         let ch = if ctrl && (ch as u8).is_ascii_alphabetic() { (ch as u8 & 0x1f) as u16 } else { ch };
         let message = if m.message == WM_SYSKEYDOWN { WM_SYSCHAR } else { WM_CHAR };
-        g.post_message(m.hwnd, message, ch as usize, m.lparam);
+        g.post_char(m.hwnd, message, ch as usize, m.lparam);
         true
     })
 }

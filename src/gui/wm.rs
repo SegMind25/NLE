@@ -796,6 +796,22 @@ mod tests {
     }
 
     #[test]
+    fn a_character_is_queued_before_the_keys_that_came_in_after_its_press() {
+        let mut g = gui();
+        class(&mut g, "K");
+        let top = make(&mut g, "k", 0x10CF_0000, 0, 0, 300, 200, 0);
+        let key = |vk: usize| Msg { hwnd: top, message: WM_KEYDOWN, wparam: vk, lparam: 0, time: 0, pt: (0, 0) };
+        let timer = Msg { hwnd: top, message: WM_TIMER, wparam: 1, lparam: 0, time: 0, pt: (0, 0) };
+        // the program is busy: a timer message, then the keys "v" and Tab, are waiting; "e" has just been fetched
+        for m in [timer, key(0x56), key(0x09)] {
+            g.post_to_thread(1, m);
+        }
+        g.post_char(top, WM_CHAR, 'e' as usize, 0);
+        let order: Vec<(u32, usize)> = g.threads.get(&1).unwrap().queue.iter().map(|m| (m.message, m.wparam)).collect();
+        assert_eq!(order, vec![(WM_TIMER, 1), (WM_CHAR, 'e' as usize), (WM_KEYDOWN, 0x56), (WM_KEYDOWN, 0x09)]);
+    }
+
+    #[test]
     fn registering_a_class_twice_fails_and_lookup_ignores_case() {
         let mut g = gui();
         class(&mut g, "Same");
