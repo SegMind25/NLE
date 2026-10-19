@@ -83,6 +83,10 @@ if want appimage; then
             chmod +x "$TOOL"
         fi
     fi
+    command -v desktop-file-validate >/dev/null 2>&1 || {
+        echo "packaging/build.sh: appimagetool needs desktop-file-validate (apt install desktop-file-utils)" >&2
+        exit 1
+    }
     app="$STAGE/NLE.AppDir"
     mkdir -p "$app/usr/bin" "$app/usr/lib/nle"
     cp "$BUILD/nle" "$app/usr/bin/"

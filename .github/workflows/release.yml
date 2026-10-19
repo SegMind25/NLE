@@ -83,6 +83,7 @@ jobs:
           path: target/release
       - name: Packages
         run: |
+          sudo apt-get install -y desktop-file-utils
           chmod +x target/release/nle target/release/libnle.so
           tag="${{ needs.version.outputs.tag }}"
           NLE_VERSION="${tag#v}" packaging/build.sh

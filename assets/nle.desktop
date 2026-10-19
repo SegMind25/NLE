@@ -6,6 +6,6 @@ Comment=Run Windows programs natively on Linux
 Exec=nle gui %f
 Icon=nle
 Terminal=false
-Categories=System;Utility;
+Categories=Utility;
 MimeType=application/vnd.microsoft.portable-executable;application/x-ms-dos-executable;application/x-dosexec;
 StartupNotify=false
