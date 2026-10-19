@@ -562,7 +562,8 @@ pub unsafe fn next_message(f: &Filter, remove: bool, block: bool) -> Next {
             };
             if let Some(i) = idx {
                 let t = g.threads.get_mut(&tid)?;
-                let m = if remove { t.queue.remove(i)? } else { t.queue[i] };
+                let mut m = if remove { t.queue.remove(i)? } else { t.queue[i] };
+                g.retarget_key(&mut m);
                 return Some(Next::Msg(m));
             }
             let quit = g.threads.get(&tid).and_then(|t| t.quit);
@@ -667,6 +668,20 @@ pub unsafe fn dispatch(m: &Msg) -> isize {
     }
     let Some((proc_, unicode)) = with(|g| g.windows.get(&m.hwnd).map(|w| (w.wndproc, w.unicode))) else { return 0 };
     with_ansi(!unicode, || call_proc(proc_, m.hwnd, m.message, m.wparam, m.lparam))
+}
+
+impl Gui {
+    /// Keyboard messages go to the window that has the focus when the program fetches them, not when the key arrived:
+    /// a program that is busy while "Tab" and then "Space" come in must see the Space on the control the Tab moved to.
+    pub fn retarget_key(&self, m: &mut Msg) {
+        let key = matches!(m.message, WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP | WM_CHAR | WM_SYSCHAR);
+        if !key || self.focus == 0 || self.focus == m.hwnd || !self.windows.contains_key(&self.focus) || !self.windows.contains_key(&m.hwnd) {
+            return;
+        }
+        if self.top_level_of(self.focus) == self.top_level_of(m.hwnd) {
+            m.hwnd = self.focus;
+        }
+    }
 }
 
 /// `TranslateMessage`: a key press becomes a character message when the key produced one.

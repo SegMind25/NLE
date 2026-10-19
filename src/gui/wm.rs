@@ -751,6 +751,28 @@ mod tests {
     }
 
     #[test]
+    fn key_messages_follow_the_focus_at_the_time_they_are_fetched() {
+        let mut g = gui();
+        class(&mut g, "K");
+        let top = make(&mut g, "k", 0x10CF_0000, 0, 0, 300, 200, 0);
+        let a = make(&mut g, "k", WS_CHILD | WS_VISIBLE, 0, 0, 50, 20, top);
+        let b = make(&mut g, "k", WS_CHILD | WS_VISIBLE, 60, 0, 50, 20, top);
+        let other = make(&mut g, "k", 0x10CF_0000, 400, 0, 100, 100, 0);
+        g.focus = a;
+        let mut key = Msg { hwnd: a, message: WM_KEYDOWN, wparam: 0x20, lparam: 0, time: 0, pt: (0, 0) };
+        // the key arrived while `a` had the focus, but the program moved it to `b` before fetching the message
+        g.focus = b;
+        g.retarget_key(&mut key);
+        assert_eq!(key.hwnd, b);
+        let mut click = Msg { hwnd: a, message: WM_LBUTTONDOWN, ..key };
+        g.retarget_key(&mut click);
+        assert_eq!(click.hwnd, a, "mouse messages are not redirected");
+        let mut elsewhere = Msg { hwnd: other, message: WM_CHAR, ..key };
+        g.retarget_key(&mut elsewhere);
+        assert_eq!(elsewhere.hwnd, other, "a key for another top-level window stays where it is");
+    }
+
+    #[test]
     fn registering_a_class_twice_fails_and_lookup_ignores_case() {
         let mut g = gui();
         class(&mut g, "Same");
