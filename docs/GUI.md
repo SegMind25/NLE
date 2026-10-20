@@ -31,8 +31,9 @@ program prints its text to stderr and answers with the default button.
 | scroll bars | window scroll bars (`WS_VSCROLL` / `WS_HSCROLL`, `SetScrollInfo`, `ScrollWindow`) with thumb dragging, paging and auto-repeat |
 | menus | menu bars, pop-up and sub menus, check and radio items, `TrackPopupMenu`, mnemonics (`Alt+letter`, `F10`), accelerator tables (`TranslateAccelerator`), menus from `.rc` resources |
 | dialogs | `MessageBox` (all button sets, icons, default button, keyboard), `DialogBox` / `CreateDialog` from `.rc` templates (`DLGTEMPLATE` and `DLGTEMPLATEEX`), `IsDialogMessage` navigation (Tab, arrows, Enter, Esc, mnemonics), `EndDialog`, the `Get/SetDlgItem*` family |
+| file dialogs | `GetOpenFileName[A/W]` and `GetSaveFileName[A/W]` (filters, default extension, multi-select, overwrite prompt, folders), and the Vista COM dialogs `IFileOpenDialog` / `IFileSaveDialog` with `IShellItem`, `IShellItemArray`, `IFileDialogEvents` and `IFileDialogCustomize` (what current programs such as Notepad++ use); one native dialog window serves both |
 | resources | the resource tree of the program and of loaded DLLs: `FindResource`, `LoadResource`, `LoadString`, `LoadIcon`, `LoadBitmap`, `LoadImage` (also from `.ico` and `.bmp` files), the built-in `IDI_*` icons |
-| common controls | `comctl32`: progress, track and spin controls, status bar, tool bar (standard images included), tab control, list view (report, icon, small icon and list views, check boxes, virtual lists, column resizing, sorting), tree view (buttons, lines, images, check boxes, sorting), image lists, tool tips, window subclassing (`SetWindowSubclass`), `TaskDialog` |
+| common controls | `comctl32`: progress, track and spin controls, status bar, tool bar (standard images included), rebar, tab control (also owner-drawn), list view (report, icon, small icon and list views, check boxes, virtual lists, column resizing, sorting), tree view (buttons, lines, images, check boxes, sorting), image lists, tool tips, window subclassing (`SetWindowSubclass`), `TaskDialog` |
 | other | clipboard text (shared between the windows of one program, not with other applications), cursors, window properties (`SetProp`), `GetSystemMetrics`, `SystemParametersInfo`, monitors, `GetKeyState`, `GetCursorPos` |
 
 Text is rendered with the system's TrueType fonts (Liberation, DejaVu, Noto, ...); `NLE_FONT_DIR` adds a directory.
@@ -44,7 +45,7 @@ Programs that need these are reported as *partial* by `nle inspect`, and stop wi
 when they call one:
 
 * **Direct3D, OpenGL, DirectDraw, GDI+**, printing, and DPI scaling (windows are always 96 dpi).
-* **Rich edit**, MDI windows, the common dialogs (`GetOpenFileName`, `ChooseColor`, ...), drag and drop, and ActiveX / OLE.
+* **Rich edit**, MDI windows, the colour and font dialogs (`ChooseColor`, `ChooseFont`), printing dialogs, drag and drop, and ActiveX / OLE servers.
 * Visual styles: controls look like the modern classic style, and do not follow a program's theme manifest.
 * Custom draw notifications (`NM_CUSTOMDRAW`), label editing in list and tree views, and tool tips on hover.
 * Per-pixel alpha and rotated text in GDI.

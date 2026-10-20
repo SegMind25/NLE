@@ -16,6 +16,7 @@ pub mod api;
 pub mod backend;
 pub mod controls;
 pub mod ctl_basic;
+pub mod filedlg;
 pub mod ctl_combo;
 pub mod ctl_list;
 pub mod ctl_listview;

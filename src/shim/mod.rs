@@ -10,6 +10,8 @@ pub mod crt_setjmp;
 pub mod crt_startup;
 pub mod crt_stdio;
 pub mod comctl32;
+pub mod com_filedlg;
+pub mod comdlg32;
 pub mod crt_stdlib;
 pub mod gdi32;
 pub mod ini;
@@ -40,6 +42,7 @@ pub fn tables() -> Vec<&'static [Shim]> {
         k32_file::SHIMS,
         k32_mem::SHIMS,
         comctl32::SHIMS,
+        comdlg32::SHIMS,
         k32_proc::SHIMS,
         k32_res::SHIMS,
         k32_spawn::SPAWN_SHIMS,

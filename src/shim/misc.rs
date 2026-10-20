@@ -398,7 +398,10 @@ crate::shims! { "ole32" => OLE_SHIMS;
     fn CoInitializeSecurity(_a: usize, _b: i32, _c: usize, _d: usize, _e: DWORD, _f: DWORD, _g: usize, _h: DWORD, _i: usize) -> i32 {
         S_OK
     }
-    fn CoCreateInstance(_clsid: usize, _outer: usize, _ctx: DWORD, _iid: usize, out: *mut usize) -> i32 {
+    fn CoCreateInstance(clsid: usize, _outer: usize, _ctx: DWORD, iid: usize, out: *mut usize) -> i32 {
+        if let Some(hr) = super::com_filedlg::create_instance(clsid, iid, out) {
+            return hr;
+        }
         if !out.is_null() {
             *out = 0;
         }

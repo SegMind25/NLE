@@ -67,7 +67,7 @@ fn drive_dir(letter: char) -> PathBuf {
     }
 }
 
-fn cwd() -> PathBuf {
+pub fn cwd() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
 }
 

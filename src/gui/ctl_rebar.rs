@@ -619,6 +619,11 @@ pub unsafe extern "win64" fn rebar_proc(h: usize, msg: u32, wp: usize, lp: isize
         // CCM_SETUNICODEFORMAT / GETUNICODEFORMAT
         0x2005 => 1,
         0x2006 => 1,
+        // what the bands' children report goes on to the rebar's own parent: a tool bar in a band talks to the frame
+        WM_COMMAND | WM_NOTIFY | WM_DRAWITEM | 0x002C | 0x002E | 0x002F | 0x0138 => {
+            let parent = with(|g| g.windows.get(&h).map_or(0, |w| w.parent));
+            if parent == 0 { 0 } else { api::send(parent, msg, wp, lp) }
+        }
         WM_DESTROY => 0,
         _ => def_window_proc(h, msg, wp, lp, false),
     }

@@ -37,7 +37,7 @@ fn programs() -> Option<&'static PathBuf> {
         std::fs::create_dir_all(&dir).unwrap();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
         let windres = tool("x86_64-w64-mingw32-windres");
-        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs", "common", "opengl"] {
+        for name in ["window", "controls", "paint", "msgbox", "scroll", "lists", "menus", "dialogs", "common", "opengl", "filedlg", "filedlg_com"] {
             let c = src.join(format!("{name}.c"));
             let gui = std::fs::read_to_string(&c).unwrap().contains("WinMain");
             let mut cmd = Command::new(&gcc);
@@ -54,7 +54,7 @@ fn programs() -> Option<&'static PathBuf> {
                 assert!(out.status.success(), "windres {name}: {}", String::from_utf8_lossy(&out.stderr));
                 cmd.arg(&obj);
             }
-            cmd.args(["-lgdi32", "-luser32", "-lcomctl32", "-lopengl32"]);
+            cmd.args(["-lgdi32", "-luser32", "-lcomctl32", "-lcomdlg32", "-lopengl32", "-lole32", "-luuid", "-loleaut32"]);
             let out = cmd.output().expect("compiler did not start");
             assert!(out.status.success(), "compiling {name}: {}", String::from_utf8_lossy(&out.stderr));
         }
@@ -900,4 +900,122 @@ fn x11_menus_open_with_the_pointer_and_the_keyboard() {
     // the open menu is a window of its own, drawn below the bar
     let img = Image::from_ppm(&ppm);
     assert!(img.dark_in(110, 150, 160, 168) > 15, "the File menu's first item is on the screen");
+}
+
+/// A folder with a few files to browse, and its Windows name (everything outside the prefix is on drive Z:).
+fn browse_dir(tag: &str) -> (PathBuf, String) {
+    let dir = work_dir().join(format!("browse-{tag}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("hello.txt"), "hi").unwrap();
+    std::fs::write(dir.join("other.dat"), "x").unwrap();
+    std::fs::write(dir.join("sub").join("inner.txt"), "y").unwrap();
+    let win = format!("Z:{}", dir.display().to_string().replace('/', "\\"));
+    (dir, win)
+}
+
+fn file_dialog(mode: &str, tag: &str, script: &str) -> (i32, Vec<String>, String) {
+    let (_, win) = browse_dir(tag);
+    let out = run_headless_args("filedlg", &[mode, &win], script);
+    (out.status.code().unwrap_or(-1), lines(&out), win)
+}
+
+#[test]
+fn the_open_dialog_returns_the_path_the_offsets_and_the_filter() {
+    need_mingw!();
+    let (code, out, win) = file_dialog("open", "open", "wait 500; type hello.txt; key Enter");
+    assert_eq!(code, 0, "{out:?}");
+    assert_eq!(out, [format!("path={win}\\hello.txt name=hello.txt ext=txt filter=1")]);
+}
+
+#[test]
+fn the_open_dialog_walks_into_folders_and_cancels_with_escape() {
+    need_mingw!();
+    let (code, out, win) = file_dialog("open", "walk", "wait 500; type sub; key Enter; wait 200; type inner.txt; key Enter");
+    assert_eq!((code, &out[..]), (0, &[format!("path={win}\\sub\\inner.txt name=inner.txt ext=txt filter=1")][..]));
+    let (code, out, _) = file_dialog("open", "cancel", "wait 500; key Escape");
+    assert_eq!((code, &out[..]), (1, &["cancelled 0".to_string()][..]));
+}
+
+#[test]
+fn a_missing_file_is_refused_until_it_exists_or_the_user_gives_up() {
+    need_mingw!();
+    // the box that says so is answered with Enter, then the dialog is cancelled
+    let (code, out, _) = file_dialog("open", "missing", "wait 500; type nothere.txt; key Enter; wait 300; key Enter; wait 200; key Escape");
+    assert_eq!((code, &out[..]), (1, &["cancelled 0".to_string()][..]));
+}
+
+#[test]
+fn the_save_dialog_adds_the_default_extension_and_asks_before_replacing() {
+    need_mingw!();
+    let (code, out, win) = file_dialog("save", "save", "wait 500; type report; key Enter");
+    assert_eq!((code, &out[..]), (0, &[format!("path={win}\\report.txt name=report.txt ext=txt filter=1")][..]));
+    // an existing file: the question is answered Yes with Enter
+    let (code, out, win) = file_dialog("save", "replace", "wait 500; type hello.txt; key Enter; wait 300; key Enter");
+    assert_eq!((code, &out[..]), (0, &[format!("path={win}\\hello.txt name=hello.txt ext=txt filter=1")][..]));
+    // ... and No leaves the dialog open, so Escape cancels it
+    let (code, out, _) = file_dialog("save", "keep", "wait 500; type hello.txt; key Enter; wait 300; key n; wait 200; key Escape");
+    assert_eq!((code, &out[..]), (1, &["cancelled 0".to_string()][..]));
+}
+
+#[test]
+fn several_files_come_back_as_a_folder_and_names() {
+    need_mingw!();
+    let (code, out, win) = file_dialog("multi", "multi", "wait 500; type \"hello.txt\" \"other.dat\"; key Enter");
+    assert_eq!(code, 0, "{out:?}");
+    assert_eq!(out, [format!("folder={win}"), "file=hello.txt".to_string(), "file=other.dat".to_string()]);
+}
+
+#[test]
+fn a_pattern_in_the_name_box_filters_the_list() {
+    need_mingw!();
+    let (_, win) = browse_dir("pattern");
+    let shot = work_dir().join("filedlg-pattern.png");
+    let script = format!("wait 500; type *.dat; key Enter; wait 300; snapshot {}; close", shot.display());
+    let _ = run_headless_args("filedlg", &["open", &win], &script);
+    let img = Image::read(&shot);
+    // hello.txt was in the second row of the list (after the folder); with *.dat it is gone and other.dat takes that row
+    assert!(img.dark_in(14, 40, 120, 60) > 15, "the folder is still listed");
+}
+
+fn com_dialog(mode: &str, tag: &str, script: &str) -> (i32, Vec<String>, String) {
+    let (_, win) = browse_dir(tag);
+    let out = run_headless_args("filedlg_com", &[mode, &win], script);
+    (out.status.code().unwrap_or(-1), lines(&out), win)
+}
+
+#[test]
+fn the_com_open_dialog_returns_a_shell_item_and_the_filter_index() {
+    need_mingw!();
+    let (code, out, win) = com_dialog("open", "com-open", "wait 500; type hello.txt; key Enter");
+    assert_eq!(code, 0, "{out:?}");
+    assert_eq!(out, [format!("path={win}\\hello.txt"), "name=hello.txt".to_string(), "filter=1".to_string()]);
+}
+
+#[test]
+fn the_com_save_dialog_adds_the_default_extension() {
+    need_mingw!();
+    let (code, out, win) = com_dialog("save", "com-save", "wait 500; type report; key Enter");
+    assert_eq!(code, 0, "{out:?}");
+    assert_eq!(out[0], format!("path={win}\\report.txt"));
+}
+
+#[test]
+fn the_com_dialog_returns_several_items_and_reports_cancel() {
+    need_mingw!();
+    let (code, out, win) = com_dialog("multi", "com-multi", "wait 500; type \"hello.txt\" \"other.dat\"; key Enter");
+    assert_eq!(code, 0, "{out:?}");
+    assert_eq!(out, ["count=2".to_string(), format!("file={win}\\hello.txt"), format!("file={win}\\other.dat")]);
+    let (code, out, _) = com_dialog("open", "com-cancel", "wait 500; key Escape");
+    assert_eq!((code, &out[..]), (1, &["cancelled ok".to_string()][..]));
+}
+
+#[test]
+fn a_file_name_filled_in_by_the_program_is_replaced_by_typing() {
+    need_mingw!();
+    // the COM example sets no name, so use the plain dialog with a name preset through initial dir/file
+    let (_, win) = browse_dir("replace-name");
+    let out = run_headless_args("filedlg", &["save", &win, "preset.txt"], "wait 500; type final; key Enter");
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(lines(&out), [format!("path={win}\\final.txt name=final.txt ext=txt filter=1")]);
 }

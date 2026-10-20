@@ -43,14 +43,14 @@ NLE is a **compatibility layer for x86-64 Windows programs**: console tools, and
 | works today (tested on every commit) | does not work |
 | --- | --- |
 | C and C++ programs built with MinGW-w64 (static or dynamic runtime) | **Direct3D**, OpenGL, DirectDraw, GDI+, printing |
-| Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | rich edit, MDI, the common file / colour / font dialogs, drag and drop, ActiveX / OLE |
+| Rust (`x86_64-pc-windows-gnu`) and Go (`GOOS=windows`) programs, which bring their own runtimes | rich edit, MDI, the colour / font dialogs, drag and drop, ActiveX / OLE (only the file dialogs exist as COM objects) |
 | **programs with windows**: Win32 windows and messages, GDI drawing and text, buttons, check boxes, radio buttons, text boxes, list boxes, combo boxes, scroll bars, **menus and accelerators**, **dialog boxes from resources**, icons / bitmaps / strings from the executable, message boxes, timers (shown on an X11 display, see [docs/GUI.md](docs/GUI.md)) | **32-bit** programs and **.NET** programs |
-| the **common controls** (`comctl32`): tool bar, status bar, tab control, list view, tree view, progress / track / spin controls, image lists, `TaskDialog` | visual styles and theme manifests (controls draw in NLE's own classic-modern look) |
-| threads, locks, TLS, fiber-local storage, timers | MSVC C++ exceptions (`_CxxThrowException`); MinGW exceptions work |
+| the **common controls** (`comctl32`): tool bar, rebar, status bar, tab control, list view, tree view, progress / track / spin controls, image lists, `TaskDialog`; the **file dialogs** (`GetOpenFileName`, `GetSaveFileName`, `IFileOpenDialog`, `IFileSaveDialog`) | visual styles and theme manifests (controls draw in NLE's own classic-modern look) |
+| threads, locks, TLS, fiber-local storage, timers |  |
 | files, directories, case-insensitive paths, `C:\` drives, pipes, console I/O | overlapped / IOCP networking (blocking and non-blocking sockets work) |
-| structured exceptions, hardware faults (access violation, divide by zero), C++ exceptions, `setjmp` / `longjmp` | anything that needs Windows kernel drivers, DRM, anti-cheat |
+| structured exceptions, hardware faults (access violation, divide by zero), C++ exceptions (MinGW and MSVC, including `catch` funclets), `setjmp` / `longjmp` | anything that needs Windows kernel drivers, DRM, anti-cheat |
 | DLL loading (`LoadLibrary`, import DLLs next to the program, `DllMain`, TLS callbacks) | ARM64 hosts (x86-64 Linux only) |
-| Winsock sockets, `select`, name resolution | registry hive files, Windows services, COM objects |
+| Winsock sockets, `select`, name resolution | registry hive files, Windows services, COM servers and ActiveX |
 | the registry: a persistent hive under the prefix (shared with child processes), seeded with the usual Windows version keys | running as a sandbox: the program has your user's rights |
 | starting child processes (Windows children through `nle`, Linux programs directly, drive-path arguments translated for Linux ones), job objects |  |
 | Unicode, UTF-8 code page, wide-character APIs |  |

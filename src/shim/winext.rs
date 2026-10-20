@@ -12,7 +12,6 @@ use std::sync::Mutex;
 
 const S_OK: i32 = 0;
 const E_FAIL: i32 = 0x8000_4005u32 as i32;
-const E_NOTIMPL: i32 = 0x8000_4001u32 as i32;
 const E_HANDLE: i32 = 0x8007_0006u32 as i32;
 const REGDB_E_CLASSNOTREG: i32 = 0x8004_0154u32 as i32;
 const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
@@ -486,11 +485,8 @@ crate::shims! { "shell32" => SHELL_EXT_SHIMS;
     fn Shell_NotifyIconA(_msg: u32, _data: usize) -> BOOL {
         TRUE
     }
-    fn SHCreateItemFromParsingName(_path: LPCWSTR, _ctx: usize, _riid: usize, out: *mut usize) -> i32 {
-        if !out.is_null() {
-            *out = 0;
-        }
-        E_NOTIMPL
+    fn SHCreateItemFromParsingName(path: LPCWSTR, _ctx: usize, riid: usize, out: *mut usize) -> i32 {
+        super::com_filedlg::item_from_parsing_name(&w_ptr_to_string(path), riid, out)
     }
     // SHFILEOPSTRUCTW: hwnd, wFunc @8, pFrom @16, pTo @24, fFlags @32, fAnyOperationsAborted @36
     fn SHFileOperationW(op: *mut u8) -> i32 {
