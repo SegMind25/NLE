@@ -1,7 +1,7 @@
 # Arch Linux: builds NLE from the source of a release. (The release page also has a ready-made .pkg.tar.zst.)
 # Maintainer: SegMind25 <noreply@users.noreply.github.com>
 pkgname=nle
-pkgver=0.2.1
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Run Windows x64 programs as native Linux programs"
 arch=('x86_64')

@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "version tag to release, for example v0.2.1"
+        description: "version tag to release, for example v0.3.0"
         required: true
 
 permissions:

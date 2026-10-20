@@ -3,7 +3,7 @@
 # ~/.local (PREFIX=/usr/local for a system-wide install, as root).
 #
 #   curl -fsSL https://raw.githubusercontent.com/SegMind25/NLE/main/get-nle.sh | sh
-#   NLE_VERSION=v0.2.1 sh get-nle.sh        # a specific version instead of the latest
+#   NLE_VERSION=v0.3.0 sh get-nle.sh        # a specific version instead of the latest
 #   NLE_BASE_URL=http://mirror/dir sh get-nle.sh   # download the files from somewhere else (with NLE_VERSION)
 set -eu
 

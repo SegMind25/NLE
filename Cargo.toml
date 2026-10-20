@@ -1,6 +1,6 @@
 [package]
 name = "nle"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "NLE (Native Linux Exe): run Windows .exe files as native Linux programs. PE loader + reimplemented Win32/CRT libraries, no emulation"
 keywords = ["windows", "pe", "elf", "compatibility", "exe"]

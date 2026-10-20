@@ -17,9 +17,9 @@ newer, Fedora, openSUSE, Arch and the like. Older systems can build from source 
 ## Packages
 
 ```console
-$ sudo apt install ./nle_0.2.1_amd64.deb              # Debian, Ubuntu, Mint
-$ sudo dnf install ./nle-0.2.1-1.x86_64.rpm           # Fedora, RHEL (zypper install on openSUSE)
-$ sudo pacman -U nle-0.2.1-1-x86_64.pkg.tar.zst       # Arch
+$ sudo apt install ./nle_0.3.0_amd64.deb              # Debian, Ubuntu, Mint
+$ sudo dnf install ./nle-0.3.0-1.x86_64.rpm           # Fedora, RHEL (zypper install on openSUSE)
+$ sudo pacman -U nle-0.3.0-1-x86_64.pkg.tar.zst       # Arch
 $ sudo apt remove nle                                  # removes it again (dnf remove, pacman -R)
 ```
 
@@ -29,10 +29,10 @@ TrueType font (Liberation or DejaVu) for programs with windows; package managers
 ## AppImage
 
 ```console
-$ chmod +x NLE-0.2.1-x86_64.AppImage
-$ ./NLE-0.2.1-x86_64.AppImage                  # the launcher window
-$ ./NLE-0.2.1-x86_64.AppImage app.exe          # run a program
-$ ./NLE-0.2.1-x86_64.AppImage relink app.exe   # the other commands work too
+$ chmod +x NLE-0.3.0-x86_64.AppImage
+$ ./NLE-0.3.0-x86_64.AppImage                  # the launcher window
+$ ./NLE-0.3.0-x86_64.AppImage app.exe          # run a program
+$ ./NLE-0.3.0-x86_64.AppImage relink app.exe   # the other commands work too
 ```
 
 AppImages need FUSE 2 (`libfuse2` on Debian and Ubuntu); without it run with `APPIMAGE_EXTRACT_AND_RUN=1`. A launcher such
@@ -45,7 +45,7 @@ $ curl -fsSL https://raw.githubusercontent.com/SegMind25/NLE/main/get-nle.sh | s
 ```
 
 downloads the latest tarball, checks it against `SHA256SUMS`, and installs into `~/.local` (`PREFIX=/usr/local` for the
-whole system, `NLE_VERSION=v0.2.1` for a specific version). Add `~/.local/bin` to your `PATH` if it is not there.
+whole system, `NLE_VERSION=v0.3.0` for a specific version). Add `~/.local/bin` to your `PATH` if it is not there.
 
 ## From source
 
