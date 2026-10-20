@@ -72,25 +72,61 @@ pub unsafe fn capture_context(ctx: *mut CONTEXT) {
     rtl_capture_context(ctx);
 }
 
-fn nt_to_dos(status: u32) -> DWORD {
-    match status {
-        0 => ERROR_SUCCESS,
-        0xc000_0005 => 998,
-        0xc000_000d => ERROR_INVALID_PARAMETER,
-        0xc000_0008 => ERROR_INVALID_HANDLE,
-        0xc000_0017 => ERROR_NOT_ENOUGH_MEMORY,
-        0xc000_0022 => ERROR_ACCESS_DENIED,
-        0xc000_0034 => ERROR_FILE_NOT_FOUND,
-        0xc000_003a => ERROR_PATH_NOT_FOUND,
-        0xc000_0035 => ERROR_ALREADY_EXISTS,
-        0xc000_0023 => ERROR_INSUFFICIENT_BUFFER,
-        0xc000_00bb => ERROR_NOT_SUPPORTED,
-        0xc000_0002 => ERROR_CALL_NOT_IMPLEMENTED,
-        0xc000_0135 => ERROR_MOD_NOT_FOUND,
-        0xc000_0139 => ERROR_PROC_NOT_FOUND,
-        0x102 => WAIT_TIMEOUT,
-        _ => ERROR_INVALID_FUNCTION,
+/// NTSTATUS and Win32 error pairs; the first pair for a Win32 error is the status it comes back as.
+const NT_DOS: &[(u32, DWORD)] = &[
+    (0, ERROR_SUCCESS),
+    (0xc000_0022, ERROR_ACCESS_DENIED),
+    (0xc000_0034, ERROR_FILE_NOT_FOUND),
+    (0xc000_000f, ERROR_FILE_NOT_FOUND),
+    (0xc000_003a, ERROR_PATH_NOT_FOUND),
+    (0xc000_0035, ERROR_ALREADY_EXISTS),
+    (0xc000_0033, 123),
+    (0xc000_0043, 32),
+    (0xc000_0056, ERROR_ACCESS_DENIED),
+    (0xc000_00ba, ERROR_ACCESS_DENIED),
+    (0xc000_0101, ERROR_DIR_NOT_EMPTY),
+    (0xc000_0103, 267),
+    (0xc000_00d4, 17),
+    (0xc000_007f, 112),
+    (0xc000_0011, 38),
+    (0xc000_014b, 109),
+    (0xc000_0120, 995),
+    (0xc000_0005, 998),
+    (0xc000_000d, ERROR_INVALID_PARAMETER),
+    (0xc000_0008, ERROR_INVALID_HANDLE),
+    (0xc000_0017, ERROR_NOT_ENOUGH_MEMORY),
+    (0xc000_0023, ERROR_INSUFFICIENT_BUFFER),
+    (0xc000_00bb, ERROR_NOT_SUPPORTED),
+    (0xc000_0002, ERROR_CALL_NOT_IMPLEMENTED),
+    (0xc000_0135, ERROR_MOD_NOT_FOUND),
+    (0xc000_0139, ERROR_PROC_NOT_FOUND),
+    (0xc000_0001, 31),
+    (0x8000_0005, 234),
+    (0x8000_0006, 18),
+    (0x102, WAIT_TIMEOUT),
+];
+
+pub(crate) fn nt_to_dos(status: u32) -> DWORD {
+    // a Win32 error wrapped into a status (FACILITY_NTWIN32), as programs do to carry one through an OVERLAPPED
+    if status & 0xffff_0000 == 0x8007_0000 {
+        return status & 0xffff;
     }
+    NT_DOS.iter().find(|p| p.0 == status).map_or_else(
+        || {
+            if crate::runtime::TRACE_ERR.load(std::sync::atomic::Ordering::Relaxed) {
+                let bt = std::backtrace::Backtrace::force_capture().to_string();
+                let who: Vec<&str> = bt.lines().filter(|l| l.contains("nle::shim::")).take(3).map(|l| l.trim()).collect();
+                eprintln!("nle[err]: NTSTATUS {status:#010x} has no Win32 error ({})", who.join(" <- "));
+            }
+            ERROR_INVALID_FUNCTION
+        },
+        |p| p.1,
+    )
+}
+
+/// The status a Win32 error stands for.
+pub(crate) fn dos_to_nt(error: DWORD) -> u32 {
+    NT_DOS.iter().find(|p| p.1 == error).map_or(0xc000_0001, |p| p.0)
 }
 
 crate::shims! { "ntdll";
@@ -268,6 +304,50 @@ crate::shims! { "ntdll";
                 *(buf.add(52) as *mut u8) = crate::runtime::cpu_count() as u8;
                 if !ret.is_null() {
                     *ret = 64;
+                }
+                STATUS_SUCCESS
+            }
+            // SystemProcessorPerformanceInformation: per processor idle, kernel (idle included), user, DPC and interrupt
+            // time in 100 ns units, from /proc/stat's jiffies
+            8 => {
+                let stat = std::fs::read_to_string("/proc/stat").unwrap_or_default();
+                let mut out: Vec<u8> = Vec::new();
+                for line in stat.lines() {
+                    let mut it = line.split_whitespace();
+                    let Some(name) = it.next() else { continue };
+                    if !name.starts_with("cpu") || name == "cpu" {
+                        continue;
+                    }
+                    let v: Vec<i64> = it.take(7).filter_map(|x| x.parse().ok()).collect();
+                    if v.len() < 7 {
+                        continue;
+                    }
+                    let unit = 100_000i64;
+                    let idle = (v[3] + v[4]) * unit;
+                    let user = (v[0] + v[1]) * unit;
+                    let kernel = (v[2] + v[3] + v[4] + v[5] + v[6]) * unit;
+                    for t in [idle, kernel, user, v[6] * unit, v[5] * unit, 0] {
+                        out.extend_from_slice(&t.to_le_bytes());
+                    }
+                }
+                if !ret.is_null() {
+                    *ret = out.len() as u32;
+                }
+                if (len as usize) < out.len() {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                }
+                std::ptr::copy_nonoverlapping(out.as_ptr(), buf, out.len());
+                STATUS_SUCCESS
+            }
+            // SystemTimeOfDayInformation: boot time, current time, zero bias
+            3 if len >= 48 => {
+                std::ptr::write_bytes(buf, 0, 48);
+                let now = teb::filetime_now();
+                let up = std::fs::read_to_string("/proc/uptime").ok().and_then(|s| s.split_whitespace().next().and_then(|x| x.parse::<f64>().ok())).unwrap_or(0.0);
+                *(buf as *mut u64) = now.saturating_sub((up * 1e7) as u64);
+                *(buf.add(8) as *mut u64) = now;
+                if !ret.is_null() {
+                    *ret = 48;
                 }
                 STATUS_SUCCESS
             }

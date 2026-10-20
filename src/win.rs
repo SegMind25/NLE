@@ -645,6 +645,11 @@ pub fn last_error() -> DWORD {
 
 #[inline(always)]
 pub fn set_last_error(e: DWORD) {
+    if crate::runtime::TRACE_ERR.load(std::sync::atomic::Ordering::Relaxed) {
+        let bt = std::backtrace::Backtrace::force_capture().to_string();
+        let who: Vec<&str> = bt.lines().filter(|l| l.contains("nle::shim::") && !l.contains("set_last_error")).take(2).map(|l| l.trim()).collect();
+        eprintln!("nle[err]: SetLastError({e}) by {}", who.join(" <- "));
+    }
     unsafe { (teb().add(TEB_LAST_ERROR) as *mut DWORD).write(e) }
 }
 

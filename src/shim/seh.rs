@@ -1149,6 +1149,20 @@ crate::shims! { "ntdll" => NT_SHIMS;
         DYN_TABLES.lock().unwrap().retain(|t| t.table != table);
         1
     }
+    // a table that the program (V8's code generator) extends as it emits functions; the table's address names it
+    fn RtlAddGrowableFunctionTable(out: *mut usize, table: usize, count: DWORD, _max: DWORD, range_base: u64, _range_end: u64) -> NTSTATUS {
+        DYN_TABLES.lock().unwrap().push(DynTable { base: range_base, table, count });
+        *out = table;
+        STATUS_SUCCESS
+    }
+    fn RtlGrowFunctionTable(handle: usize, count: DWORD) {
+        if let Some(t) = DYN_TABLES.lock().unwrap().iter_mut().find(|t| t.table == handle) {
+            t.count = count;
+        }
+    }
+    fn RtlDeleteGrowableFunctionTable(handle: usize) {
+        DYN_TABLES.lock().unwrap().retain(|t| t.table != handle);
+    }
     fn RtlInstallFunctionTableCallback(_id: u64, _base: u64, _len: DWORD, _cb: usize, _ctx: usize, _dll: LPCWSTR) -> u8 {
         0
     }

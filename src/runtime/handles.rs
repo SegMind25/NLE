@@ -132,6 +132,8 @@ pub struct Completion {
     pub bytes: u32,
     pub key: usize,
     pub overlapped: usize,
+    /// the NTSTATUS of the operation that finished; 0 for a packet the program posted itself
+    pub status: u32,
 }
 
 pub struct IocpObj {

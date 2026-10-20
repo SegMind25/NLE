@@ -348,6 +348,26 @@ fn resolve_forwarder(f: &str) -> Option<usize> {
     }
 }
 
+thread_local! {
+    /// Directories of the images whose imports are being bound, innermost last: a DLL's own dependencies sit next to it.
+    static LOADING_DIRS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Directories a program added with `AddDllDirectory` / `SetDllDirectory`; the slot number is the cookie.
+static EXTRA_DLL_DIRS: Mutex<Vec<Option<PathBuf>>> = Mutex::new(Vec::new());
+
+pub fn add_dll_directory(dir: PathBuf) -> usize {
+    let mut v = EXTRA_DLL_DIRS.lock().unwrap();
+    v.push(Some(dir));
+    v.len()
+}
+
+pub fn remove_dll_directory(cookie: usize) {
+    if let Some(slot) = EXTRA_DLL_DIRS.lock().unwrap().get_mut(cookie.wrapping_sub(1)) {
+        *slot = None;
+    }
+}
+
 /// Where the loader looks for DLLs that ship with the application.
 pub fn find_dll(name: &str) -> Option<PathBuf> {
     if name.contains(['\\', '/']) {
@@ -355,13 +375,14 @@ pub fn find_dll(name: &str) -> Option<PathBuf> {
         return p.is_file().then_some(p);
     }
     let file = if name.contains('.') { name.to_string() } else { format!("{name}.dll") };
-    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut dirs: Vec<PathBuf> = LOADING_DIRS.with(|d| d.borrow().iter().rev().cloned().collect());
     if let Some(d) = runtime::cfg().exe_host.parent() {
         dirs.push(d.to_path_buf());
     }
     if let Ok(c) = std::env::current_dir() {
         dirs.push(c);
     }
+    dirs.extend(EXTRA_DLL_DIRS.lock().unwrap().iter().flatten().cloned());
     dirs.push(paths::prefix().join("drive_c/windows/system32"));
     dirs.iter().find_map(|d| crate::analyze::find_ci(d, &file).filter(|p| p.is_file()))
 }
@@ -517,7 +538,9 @@ fn load_image_file(path: &Path, is_main: bool, ctx: &mut LoadCtx) -> Result<Arc<
         let tls = tls_info(&pe, delta);
         let module = Arc::new(build_module(&pe, &canon, base, size, delta, is_main, tls));
         MODULES.write().unwrap().push(module.clone());
+        LOADING_DIRS.with(|d| d.borrow_mut().push(canon.parent().map(Path::to_path_buf).unwrap_or_default()));
         bind_imports(&pe, &module, ctx);
+        LOADING_DIRS.with(|d| d.borrow_mut().pop());
         apply_protections(&pe, base, &module.sections);
         ctx.init.push(module.clone());
         Ok(module)

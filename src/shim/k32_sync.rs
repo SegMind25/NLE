@@ -742,6 +742,7 @@ crate::shims! { "kernel32";
         if h == CURRENT_PROCESS || h == CURRENT_THREAD {
             return TRUE;
         }
+        crate::shim::aio::on_close_handle(h);
         if handles::close(h) {
             TRUE
         } else {

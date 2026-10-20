@@ -1000,7 +1000,7 @@ unsafe fn edit_copy(h: usize) {
     let t = edit_selected_text(h);
     if !t.is_empty() {
         with(|g| {
-            if let Some(b) = g.ensure_backend() {
+            if let Some(b) = g.backend_quiet() {
                 b.set_clipboard(&t);
             }
         });
@@ -1013,7 +1013,7 @@ unsafe fn edit_cut(h: usize) {
 }
 
 unsafe fn edit_paste(h: usize) {
-    let t = with(|g| g.ensure_backend().map(|b| b.get_clipboard())).unwrap_or_default();
+    let t = with(|g| g.backend_quiet().map(|b| b.get_clipboard())).unwrap_or_default();
     if !t.is_empty() {
         edit_insert(h, &t);
     }

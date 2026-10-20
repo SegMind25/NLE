@@ -388,8 +388,12 @@ crate::shims! { "crt";
     fn _errno() -> *mut i32 {
         errno_ptr()
     }
+    // libuv and friends read `_doserrno` right after a failed CRT call: it follows the errno the call left
     fn __doserrno() -> *mut u32 {
-        DOSERRNO.with(|e| e.get())
+        DOSERRNO.with(|e| {
+            *e.get() = errno_to_win(*errno_ptr());
+            e.get()
+        })
     }
     fn _get_errno(out: *mut i32) -> i32 {
         *out = *errno_ptr();

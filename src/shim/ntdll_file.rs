@@ -10,11 +10,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const STATUS_END_OF_FILE: NTSTATUS = 0xc000_0011u32 as i32;
-const STATUS_PIPE_BROKEN: NTSTATUS = 0xc000_014bu32 as i32;
-const STATUS_OBJECT_NAME_COLLISION: NTSTATUS = 0xc000_0035u32 as i32;
 const STATUS_OBJECT_PATH_NOT_FOUND: NTSTATUS = 0xc000_003au32 as i32;
-const STATUS_SHARING_VIOLATION: NTSTATUS = 0xc000_0043u32 as i32;
-const STATUS_OBJECT_NAME_INVALID: NTSTATUS = 0xc000_0033u32 as i32;
 const STATUS_NO_MORE_FILES: NTSTATUS = 0x8000_0006u32 as i32;
 const FILE_USE_FILE_POINTER_POSITION: i64 = -2;
 
@@ -36,20 +32,7 @@ static NAMED_PIPES: Mutex<Option<HashMap<String, i32>>> = Mutex::new(None);
 static IOCP_ASSOC: Mutex<Option<HashMap<HANDLE, (HANDLE, usize)>>> = Mutex::new(None);
 
 fn dos_to_status(e: DWORD) -> NTSTATUS {
-    match e {
-        ERROR_SUCCESS => STATUS_SUCCESS,
-        ERROR_FILE_NOT_FOUND => STATUS_OBJECT_NAME_NOT_FOUND,
-        ERROR_PATH_NOT_FOUND => STATUS_OBJECT_PATH_NOT_FOUND,
-        ERROR_ACCESS_DENIED => STATUS_ACCESS_DENIED,
-        ERROR_FILE_EXISTS | ERROR_ALREADY_EXISTS => STATUS_OBJECT_NAME_COLLISION,
-        ERROR_SHARING_VIOLATION => STATUS_SHARING_VIOLATION,
-        ERROR_INVALID_NAME => STATUS_OBJECT_NAME_INVALID,
-        ERROR_INVALID_HANDLE => STATUS_INVALID_HANDLE,
-        ERROR_BROKEN_PIPE => STATUS_PIPE_BROKEN,
-        ERROR_NOT_ENOUGH_MEMORY => STATUS_NO_MEMORY,
-        ERROR_NOT_SUPPORTED => STATUS_NOT_SUPPORTED,
-        _ => STATUS_UNSUCCESSFUL,
-    }
+    crate::shim::ntdll::dos_to_nt(e) as NTSTATUS
 }
 
 unsafe fn finish(iosb: *mut IoStatusBlock, status: NTSTATUS, info: usize) -> NTSTATUS {
@@ -81,7 +64,7 @@ unsafe fn object_path(oa: *const ObjectAttributes) -> Option<String> {
 pub fn pipe_name(win: &str) -> Option<String> {
     let l = win.replace('/', "\\");
     let lower = l.to_ascii_lowercase();
-    for pre in ["\\\\.\\pipe\\", "\\??\\pipe\\", "\\device\\namedpipe\\"] {
+    for pre in ["\\\\.\\pipe\\", "\\\\?\\pipe\\", "\\??\\pipe\\", "\\device\\namedpipe\\"] {
         if lower.starts_with(pre) {
             return Some(l[pre.len()..].to_string());
         }
@@ -165,6 +148,29 @@ unsafe fn nt_io(read: bool, h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, l
     finish(iosb, dos_to_status(e), 0)
 }
 
+/// The completion port and key a handle (a file or a socket) is associated with.
+pub fn iocp_assoc(h: HANDLE) -> Option<(HANDLE, usize)> {
+    IOCP_ASSOC.lock().unwrap().as_ref().and_then(|m| m.get(&h).copied())
+}
+
+pub fn iocp_disassociate(h: HANDLE) {
+    if let Some(m) = IOCP_ASSOC.lock().unwrap().as_mut() {
+        m.remove(&h);
+    }
+}
+
+/// Queues a completion packet on a port.
+pub fn post_to(port: HANDLE, bytes: DWORD, key: usize, ov: usize, status: u32) -> bool {
+    match iocp_of(port).as_deref() {
+        Some(Kind::Iocp(p)) => {
+            p.queue.lock().unwrap().push_back(Completion { bytes, key, overlapped: ov, status });
+            p.cv.notify_one();
+            true
+        }
+        _ => false,
+    }
+}
+
 fn iocp_of(h: HANDLE) -> Option<std::sync::Arc<Kind>> {
     handles::get(h).filter(|k| matches!(&**k, Kind::Iocp(_)))
 }
@@ -218,6 +224,9 @@ crate::shims! { "ntdll" => NTFILE_SHIMS;
     fn NtQueryInformationFile(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32) -> NTSTATUS {
         query_file_info(h, iosb, buf, len, class)
     }
+    fn NtQueryVolumeInformationFile(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32) -> NTSTATUS {
+        query_volume_info(h, iosb, buf, len, class)
+    }
     fn NtSetInformationFile(h: HANDLE, iosb: *mut IoStatusBlock, buf: *const u8, len: u32, class: u32) -> NTSTATUS {
         let win_class = match class {
             13 => 4,
@@ -227,7 +236,12 @@ crate::shims! { "ntdll" => NTFILE_SHIMS;
             20 => 6,
             19 => 5,
             4 => 0,
-            _ => return finish(iosb, STATUS_NOT_SUPPORTED, 0),
+            _ => {
+                if crate::runtime::TRACE_ERR.load(std::sync::atomic::Ordering::Relaxed) {
+                    eprintln!("nle[err]: NtSetInformationFile class {class} is not supported");
+                }
+                return finish(iosb, STATUS_NOT_SUPPORTED, 0);
+            }
         };
         if class == 14 {
             return finish(iosb, STATUS_SUCCESS, 0);
@@ -244,8 +258,8 @@ crate::shims! { "ntdll" => NTFILE_SHIMS;
     fn NtFsControlFile(_h: HANDLE, _e: HANDLE, _a: usize, _c: usize, iosb: *mut IoStatusBlock, _code: u32, _in: usize, _inl: u32, _out: usize, _outl: u32) -> NTSTATUS {
         finish(iosb, STATUS_NOT_SUPPORTED, 0)
     }
-    fn NtQueryDirectoryFile(_h: HANDLE, _e: HANDLE, _a: usize, _c: usize, iosb: *mut IoStatusBlock, _buf: usize, _len: u32, _class: u32, _single: u8, _name: usize, _restart: u8) -> NTSTATUS {
-        finish(iosb, STATUS_NO_MORE_FILES, 0)
+    fn NtQueryDirectoryFile(h: HANDLE, _e: HANDLE, _a: usize, _c: usize, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32, single: u8, name: *const UNICODE_STRING, restart: u8) -> NTSTATUS {
+        query_directory(h, iosb, buf, len, class, single != 0, name, restart != 0)
     }
     fn NtFlushBuffersFile(h: HANDLE, iosb: *mut IoStatusBlock) -> NTSTATUS {
         k32_file::FlushFileBuffers(h);
@@ -253,12 +267,182 @@ crate::shims! { "ntdll" => NTFILE_SHIMS;
     }
 }
 
+/// `NtQueryVolumeInformationFile`: the volume of a handle, answered from `fstatvfs` (classes 1, 3, 4, 5 and 7).
+unsafe fn query_volume_info(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32) -> NTSTATUS {
+    let Some((fd, tty, pipe)) = k32_file::with_file(h, |f| (f.fd.load(std::sync::atomic::Ordering::Relaxed), f.is_tty, f.is_pipe)) else {
+        return finish(iosb, STATUS_INVALID_HANDLE, 0);
+    };
+    let mut vfs: libc::statvfs = std::mem::zeroed();
+    let have = fd >= 0 && libc::fstatvfs(fd, &mut vfs) == 0;
+    let unit = if have { vfs.f_frsize.max(512) as u32 } else { 4096 };
+    let (total, free, avail) = if have { (vfs.f_blocks as i64, vfs.f_bfree as i64, vfs.f_bavail as i64) } else { (0, 0, 0) };
+    let put = |bytes: &[u8]| -> NTSTATUS {
+        if (len as usize) < bytes.len() {
+            return finish(iosb, STATUS_INFO_LENGTH_MISMATCH, 0);
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, bytes.len());
+        finish(iosb, STATUS_SUCCESS, bytes.len())
+    };
+    match class {
+        // volume: creation time, serial number, label length, supports objects
+        1 => {
+            let mut b = vec![0u8; 20];
+            b[8..12].copy_from_slice(&0x4e4c_4501u32.to_le_bytes());
+            put(&b)
+        }
+        // size: total and available units, sectors per unit, bytes per sector
+        3 => {
+            let mut b = Vec::new();
+            b.extend_from_slice(&total.to_le_bytes());
+            b.extend_from_slice(&avail.to_le_bytes());
+            b.extend_from_slice(&(unit / 512).to_le_bytes());
+            b.extend_from_slice(&512u32.to_le_bytes());
+            put(&b)
+        }
+        // device: FILE_DEVICE_DISK / NAMED_PIPE / CONSOLE and the characteristics
+        4 => {
+            let ty: u32 = if tty { 0x50 } else if pipe { 0x11 } else { 7 };
+            let mut b = Vec::new();
+            b.extend_from_slice(&ty.to_le_bytes());
+            b.extend_from_slice(&0u32.to_le_bytes());
+            put(&b)
+        }
+        // attributes: case preserving + unicode on disk, 255 characters per name, "NTFS"
+        5 => {
+            let name = to_wide("NTFS");
+            let mut b = Vec::new();
+            b.extend_from_slice(&0x0000_0007u32.to_le_bytes());
+            b.extend_from_slice(&255i32.to_le_bytes());
+            b.extend_from_slice(&((name.len() * 2) as u32).to_le_bytes());
+            for u in name {
+                b.extend_from_slice(&u.to_le_bytes());
+            }
+            put(&b)
+        }
+        7 => {
+            let mut b = Vec::new();
+            b.extend_from_slice(&total.to_le_bytes());
+            b.extend_from_slice(&avail.to_le_bytes());
+            b.extend_from_slice(&free.to_le_bytes());
+            b.extend_from_slice(&(unit / 512).to_le_bytes());
+            b.extend_from_slice(&512u32.to_le_bytes());
+            put(&b)
+        }
+        _ => finish(iosb, STATUS_NOT_SUPPORTED, 0),
+    }
+}
+
+/// The entries of a directory handle that `NtQueryDirectoryFile` has not handed out yet.
+struct DirScan {
+    entries: Vec<(String, std::path::PathBuf)>,
+    next: usize,
+}
+
+static DIR_SCANS: Mutex<Option<HashMap<HANDLE, DirScan>>> = Mutex::new(None);
+
+/// `NtQueryDirectoryFile`: the directory information classes 1, 2, 3, 12, 37 and 38, a pattern on the first call,
+/// "." and ".." included as Windows lists them.
+unsafe fn query_directory(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32, single: bool, name: *const UNICODE_STRING, restart: bool) -> NTSTATUS {
+    use std::os::unix::fs::MetadataExt;
+    // (offset of the name, fixed header before it) per class; EaSize at 64 in the classes that have one
+    let (name_off, id_off) = match class {
+        1 => (64usize, None),
+        2 => (68, None),
+        3 => (94, None),
+        12 => (12, None),
+        37 => (104, Some(96usize)),
+        38 => (80, Some(72)),
+        _ => return finish(iosb, STATUS_NOT_SUPPORTED, 0),
+    };
+    let Some(dir) = k32_file::with_file(h, |f| f.path.clone()) else { return finish(iosb, STATUS_INVALID_HANDLE, 0) };
+    let Some(dir) = dir else { return finish(iosb, STATUS_INVALID_HANDLE, 0) };
+    let mut scans = DIR_SCANS.lock().unwrap();
+    let scans = scans.get_or_insert_with(HashMap::new);
+    if restart || !scans.contains_key(&h) {
+        let pattern: Vec<char> = if name.is_null() || (*name).length == 0 {
+            vec!['*']
+        } else {
+            String::from_utf16_lossy(std::slice::from_raw_parts((*name).buffer, (*name).length as usize / 2)).chars().collect()
+        };
+        let mut entries: Vec<(String, std::path::PathBuf)> = vec![(".".into(), dir.clone()), ("..".into(), dir.join(".."))];
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            let mut names: Vec<_> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            names.sort();
+            entries.extend(names.into_iter().map(|n| { let p = dir.join(&n); (n, p) }));
+        }
+        entries.retain(|(n, _)| k32_file::wildcard(&pattern, &n.chars().collect::<Vec<char>>()));
+        scans.insert(h, DirScan { entries, next: 0 });
+    }
+    let scan = scans.get_mut(&h).unwrap();
+    if scan.next >= scan.entries.len() {
+        // the first call that finds nothing says there is no such file, later ones that there are no more
+        scans.remove(&h);
+        return finish(iosb, STATUS_NO_MORE_FILES, 0);
+    }
+    let mut at = 0usize;
+    let mut records: Vec<(usize, usize)> = Vec::new();
+    while scan.next < scan.entries.len() {
+        let (n, p) = &scan.entries[scan.next];
+        let wide = to_wide(n);
+        let size = (name_off + wide.len() * 2 + 7) & !7;
+        if at + size > len as usize {
+            break;
+        }
+        let md = std::fs::metadata(p).or_else(|_| std::fs::symlink_metadata(p));
+        let rec = std::slice::from_raw_parts_mut(buf.add(at), size);
+        rec.fill(0);
+        let put32 = |rec: &mut [u8], off: usize, v: u32| rec[off..off + 4].copy_from_slice(&v.to_le_bytes());
+        let put64 = |rec: &mut [u8], off: usize, v: u64| rec[off..off + 8].copy_from_slice(&v.to_le_bytes());
+        if class != 12 {
+            if let Ok(md) = &md {
+                let (c, a, w) = k32_file::md_times(md);
+                put64(rec, 8, c.to_u64());
+                put64(rec, 16, a.to_u64());
+                put64(rec, 24, w.to_u64());
+                put64(rec, 32, w.to_u64());
+                put64(rec, 40, md.len());
+                put64(rec, 48, (md.len() + 4095) & !4095);
+                put32(rec, 56, k32_file::md_attrs(md));
+                if let Some(off) = id_off {
+                    put64(rec, off, md.ino());
+                }
+            }
+            put32(rec, 60, (wide.len() * 2) as u32);
+        } else {
+            put32(rec, 8, (wide.len() * 2) as u32);
+        }
+        for (i, u) in wide.iter().enumerate() {
+            rec[name_off + i * 2..name_off + i * 2 + 2].copy_from_slice(&u.to_le_bytes());
+        }
+        records.push((at, size));
+        at += size;
+        scan.next += 1;
+        if single {
+            break;
+        }
+    }
+    if records.is_empty() {
+        return finish(iosb, STATUS_BUFFER_OVERFLOW, 0);
+    }
+    // each record says how far the next one is; the last one says 0
+    for (at, size) in &records[..records.len() - 1] {
+        std::ptr::copy_nonoverlapping((*size as u32).to_le_bytes().as_ptr(), buf.add(*at), 4);
+    }
+    finish(iosb, STATUS_SUCCESS, at)
+}
+
 unsafe fn query_file_info(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32) -> NTSTATUS {
     let map = match class {
         4 => 0,
         5 => 1,
         35 => 9,
-        _ => return finish(iosb, STATUS_NOT_SUPPORTED, 0),
+        6 | 8 | 9 | 14 | 16 | 18 | 24 => return query_file_info_composite(h, iosb, buf, len, class),
+        _ => {
+            if crate::runtime::TRACE_ERR.load(std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("nle[err]: NtQueryInformationFile class {class} is not supported");
+            }
+            return finish(iosb, STATUS_NOT_SUPPORTED, 0);
+        }
     };
     if k32_file::GetFileInformationByHandleEx(h, map, buf, len) != FALSE {
         let n = match class {
@@ -270,6 +454,80 @@ unsafe fn query_file_info(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len
     } else {
         finish(iosb, dos_to_status(last_error()), 0)
     }
+}
+
+const STATUS_BUFFER_OVERFLOW: NTSTATUS = 0x8000_0005u32 as i32;
+
+/// What the file information classes that are built from several parts say: internal (6), access (8), name (9),
+/// position (14), mode (16) and all of them at once (18).
+unsafe fn query_file_info_composite(h: HANDLE, iosb: *mut IoStatusBlock, buf: *mut u8, len: u32, class: u32) -> NTSTATUS {
+    let Some((fd, path, pipe)) = k32_file::with_file(h, |f| (f.fd.load(std::sync::atomic::Ordering::Relaxed), f.path.clone(), f.is_pipe)) else {
+        return finish(iosb, STATUS_INVALID_HANDLE, 0);
+    };
+    let mut st: libc::stat = std::mem::zeroed();
+    let have_stat = fd >= 0 && libc::fstat(fd, &mut st) == 0;
+    let index = if have_stat { st.st_ino as u64 } else { 0 };
+    // FILE_READ_DATA / FILE_WRITE_DATA with the usual companions, from how the descriptor was opened
+    let flags = if fd >= 0 { libc::fcntl(fd, libc::F_GETFL) } else { 0 };
+    let access: u32 = match flags & libc::O_ACCMODE {
+        libc::O_WRONLY => 0x0012_0116,
+        libc::O_RDWR => 0x0012_019f,
+        _ => 0x0012_0089,
+    };
+    // the descriptors NLE hands out are synchronous: FILE_SYNCHRONOUS_IO_NONALERT
+    let mode: u32 = if pipe || have_stat { 0x20 } else { 0 };
+    let position = if fd >= 0 { libc::lseek(fd, 0, libc::SEEK_CUR).max(0) as i64 } else { 0 };
+    let name: Vec<u16> = path.as_deref().map(|p| paths::host_to_win(p)).map(|w| to_wide(w.get(2..).unwrap_or(&w))).unwrap_or_default();
+    let mut out: Vec<u8> = Vec::new();
+    let name_info = |out: &mut Vec<u8>| {
+        out.extend_from_slice(&((name.len() * 2) as u32).to_le_bytes());
+        for u in &name {
+            out.extend_from_slice(&u.to_le_bytes());
+        }
+    };
+    match class {
+        6 => out.extend_from_slice(&index.to_le_bytes()),
+        8 => out.extend_from_slice(&access.to_le_bytes()),
+        9 => name_info(&mut out),
+        14 => out.extend_from_slice(&position.to_le_bytes()),
+        16 => out.extend_from_slice(&mode.to_le_bytes()),
+        // FilePipeLocalInformation: byte stream, full duplex, quotas, what can be read, connected, client end
+        24 => {
+            let mut unread: libc::c_int = 0;
+            if fd >= 0 {
+                libc::ioctl(fd, libc::FIONREAD, &mut unread);
+            }
+            for v in [0u32, 2, 255, 1, 65536, unread.max(0) as u32, 65536, 65536, 3, 0] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        _ => {
+            // basic and standard information first, as the single classes give them
+            let mut part = [0u8; 64];
+            if k32_file::GetFileInformationByHandleEx(h, 0, part.as_mut_ptr(), 40) == FALSE {
+                return finish(iosb, dos_to_status(last_error()), 0);
+            }
+            if k32_file::GetFileInformationByHandleEx(h, 1, part.as_mut_ptr().add(40), 24) == FALSE {
+                return finish(iosb, dos_to_status(last_error()), 0);
+            }
+            out.extend_from_slice(&part);
+            out.extend_from_slice(&index.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes()); // EaSize
+            out.extend_from_slice(&access.to_le_bytes());
+            out.extend_from_slice(&position.to_le_bytes());
+            out.extend_from_slice(&mode.to_le_bytes());
+            out.extend_from_slice(&1u32.to_le_bytes()); // AlignmentRequirement
+            name_info(&mut out);
+        }
+    }
+    let n = out.len().min(len as usize);
+    std::ptr::copy_nonoverlapping(out.as_ptr(), buf, n);
+    // a name that does not fit is cut off and said so; every other class has to fit
+    let fixed = match class { 9 => 4, 18 => 100, _ => out.len() };
+    if (len as usize) < fixed {
+        return finish(iosb, STATUS_INFO_LENGTH_MISMATCH, 0);
+    }
+    finish(iosb, if n < out.len() { STATUS_BUFFER_OVERFLOW } else { STATUS_SUCCESS }, n)
 }
 
 crate::shims! { "kernel32" => IOCP_SHIMS;
@@ -287,7 +545,7 @@ crate::shims! { "kernel32" => IOCP_SHIMS;
     fn PostQueuedCompletionStatus(port: HANDLE, bytes: DWORD, key: usize, ov: usize) -> BOOL {
         match iocp_of(port).as_deref() {
             Some(Kind::Iocp(p)) => {
-                p.queue.lock().unwrap().push_back(Completion { bytes, key, overlapped: ov });
+                p.queue.lock().unwrap().push_back(Completion { bytes, key, overlapped: ov, status: 0 });
                 p.cv.notify_one();
                 TRUE
             }
@@ -303,6 +561,11 @@ crate::shims! { "kernel32" => IOCP_SHIMS;
                 *bytes = c.bytes;
                 *key = c.key;
                 *ov = c.overlapped;
+                // an operation that failed is reported as a failed call that still hands over its OVERLAPPED
+                if c.status != 0 {
+                    set_last_error(crate::shim::ntdll::nt_to_dos(c.status));
+                    return FALSE;
+                }
                 TRUE
             }
             None => {
@@ -322,7 +585,7 @@ crate::shims! { "kernel32" => IOCP_SHIMS;
             let e = entries.add(n * 4);
             *e = c.key;
             *e.add(1) = c.overlapped;
-            *e.add(2) = 0;
+            *e.add(2) = c.status as usize;
             *(e.add(3) as *mut u32) = c.bytes;
         };
         put(first, n);
@@ -339,11 +602,16 @@ crate::shims! { "kernel32" => IOCP_SHIMS;
         *removed = n as ULONG;
         TRUE
     }
-    fn CreateNamedPipeW(name: LPCWSTR, _open: DWORD, _mode: DWORD, _max: DWORD, _out: DWORD, _in: DWORD, _timeout: DWORD, _sa: usize) -> HANDLE {
+    fn CreateNamedPipeW(name: LPCWSTR, open: DWORD, _mode: DWORD, _max: DWORD, _out: DWORD, _in: DWORD, _timeout: DWORD, _sa: usize) -> HANDLE {
         let path = w_ptr_to_string(name);
         let n = pipe_name(&path).unwrap_or(path);
         match create_pipe_server(&n) {
-            Some(h) => h,
+            Some(h) => {
+                if open & FILE_FLAG_OVERLAPPED != 0 {
+                    crate::shim::aio::mark_overlapped(h);
+                }
+                h
+            }
             None => {
                 set_last_error(ERROR_NOT_ENOUGH_MEMORY);
                 INVALID_HANDLE_VALUE
@@ -353,9 +621,6 @@ crate::shims! { "kernel32" => IOCP_SHIMS;
     fn CreateNamedPipeA(name: LPCSTR, open: DWORD, mode: DWORD, max: DWORD, out: DWORD, inb: DWORD, timeout: DWORD, sa: usize) -> HANDLE {
         let w = to_wide_nul(&a_to_string(name));
         CreateNamedPipeW(w.as_ptr(), open, mode, max, out, inb, timeout, sa)
-    }
-    fn ConnectNamedPipe(_h: HANDLE, _ov: usize) -> BOOL {
-        TRUE
     }
     fn DisconnectNamedPipe(_h: HANDLE) -> BOOL {
         TRUE

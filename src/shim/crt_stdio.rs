@@ -984,6 +984,48 @@ crate::shims! { "crt";
     fn __stdio_common_vswprintf(opts: u64, buf: LPWSTR, n: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
         swprintf_n(buf, n, &crt_printf::fmt_wide(fmt, &mut Args::new(va)), opts & 2 != 0)
     }
+    // the secure (_s) and positional (_p) forms print the same; the destination size is what they check
+    fn __stdio_common_vfprintf_s(_opts: u64, fp: usize, fmt: LPCSTR, _loc: usize, va: *const u64) -> i32 {
+        fprintf_v(fp, fmt, va)
+    }
+    fn __stdio_common_vfprintf_p(_opts: u64, fp: usize, fmt: LPCSTR, _loc: usize, va: *const u64) -> i32 {
+        fprintf_v(fp, fmt, va)
+    }
+    fn __stdio_common_vfwprintf_s(_opts: u64, fp: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
+        fwprintf_v(fp, fmt, va)
+    }
+    fn __stdio_common_vfwprintf_p(_opts: u64, fp: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
+        fwprintf_v(fp, fmt, va)
+    }
+    fn __stdio_common_vsprintf_p(_opts: u64, buf: LPSTR, size: usize, fmt: LPCSTR, _loc: usize, va: *const u64) -> i32 {
+        sprintf_s_v(buf, size, fmt, va)
+    }
+    fn __stdio_common_vswprintf_s(_opts: u64, buf: LPWSTR, size: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
+        swprintf_s_v(buf, size, fmt, va)
+    }
+    fn __stdio_common_vswprintf_p(_opts: u64, buf: LPWSTR, size: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
+        swprintf_s_v(buf, size, fmt, va)
+    }
+    fn __stdio_common_vsnwprintf_s(_opts: u64, buf: LPWSTR, size: usize, max: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
+        let w = crt_printf::to_utf16(&crt_printf::fmt_wide(fmt, &mut Args::new(va)));
+        let n = w.len().min(max);
+        if n + 1 > size {
+            if size > 0 {
+                *buf = 0;
+            }
+            return -1;
+        }
+        std::ptr::copy_nonoverlapping(w.as_ptr(), buf, n);
+        *buf.add(n) = 0;
+        n as i32
+    }
+    fn __stdio_common_vswscanf(_opts: u64, s: LPCWSTR, _len: usize, fmt: LPCWSTR, _loc: usize, va: *const u64) -> i32 {
+        swscanf_v(s, fmt, va)
+    }
+    // wide scanning of a stream is not implemented: it reports the end of the input
+    fn __stdio_common_vfwscanf(_opts: u64, _fp: usize, _fmt: LPCWSTR, _loc: usize, _va: *const u64) -> i32 {
+        -1
+    }
     fn __stdio_common_vsscanf(_opts: u64, s: LPCSTR, _len: usize, fmt: LPCSTR, _loc: usize, va: *const u64) -> i32 {
         sscanf_v(s, fmt, va)
     }

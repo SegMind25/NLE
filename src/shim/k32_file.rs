@@ -39,7 +39,7 @@ fn unix_to_filetime(sec: i64, nsec: i64) -> FILETIME {
     FILETIME::from_u64(((sec + EPOCH_DIFF_SECS) as u64) * 10_000_000 + (nsec / 100) as u64)
 }
 
-fn md_times(md: &Metadata) -> (FILETIME, FILETIME, FILETIME) {
+pub(crate) fn md_times(md: &Metadata) -> (FILETIME, FILETIME, FILETIME) {
     let created = md.created().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
     let creation = match created {
         Some(d) => unix_to_filetime(d.as_secs() as i64, d.subsec_nanos() as i64),
@@ -48,7 +48,7 @@ fn md_times(md: &Metadata) -> (FILETIME, FILETIME, FILETIME) {
     (creation, unix_to_filetime(md.atime(), md.atime_nsec()), unix_to_filetime(md.mtime(), md.mtime_nsec()))
 }
 
-fn md_attrs(md: &Metadata) -> DWORD {
+pub(crate) fn md_attrs(md: &Metadata) -> DWORD {
     let mut a = 0;
     if md.is_dir() {
         a |= FILE_ATTRIBUTE_DIRECTORY;
@@ -65,7 +65,7 @@ fn md_attrs(md: &Metadata) -> DWORD {
     a
 }
 
-fn with_file<R>(h: HANDLE, f: impl FnOnce(&FileObj) -> R) -> Option<R> {
+pub(crate) fn with_file<R>(h: HANDLE, f: impl FnOnce(&FileObj) -> R) -> Option<R> {
     match handles::get(h).as_deref() {
         Some(Kind::File(file)) => Some(f(file)),
         _ => {
@@ -98,6 +98,17 @@ fn embedded_original(host: &Path, write: bool) -> Option<PathBuf> {
 }
 
 pub(crate) unsafe fn open_file(path: &str, access: DWORD, disposition: DWORD, attrs_flags: DWORD) -> HANDLE {
+    let h = open_file_inner(path, access, disposition, attrs_flags);
+    if h != INVALID_HANDLE_VALUE && attrs_flags & FILE_FLAG_OVERLAPPED != 0 {
+        crate::shim::aio::mark_overlapped(h);
+    }
+    if crate::runtime::cfg().trace.api {
+        eprintln!("nle[api]: CreateFile({path}, access={access:#x}, disp={disposition}, flags={attrs_flags:#x}) -> {}", if h == INVALID_HANDLE_VALUE { format!("error {}", last_error()) } else { format!("{h:#x}") });
+    }
+    h
+}
+
+unsafe fn open_file_inner(path: &str, access: DWORD, disposition: DWORD, attrs_flags: DWORD) -> HANDLE {
     let want_read = access & (GENERIC_READ | FILE_READ_DATA | GENERIC_ALL) != 0;
     let want_write = access & (GENERIC_WRITE | FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_ALL) != 0;
 
@@ -180,18 +191,25 @@ pub(crate) unsafe fn open_file(path: &str, access: DWORD, disposition: DWORD, at
     handles::insert(Kind::File(obj))
 }
 
-unsafe fn finish_overlapped(ov: *mut OVERLAPPED, n: usize) {
+/// The `OVERLAPPED` of an operation that was done on the spot: the byte count, the event, and (for a handle opened
+/// overlapped) the packet on its completion port.
+unsafe fn finish_overlapped(h: HANDLE, ov: *mut OVERLAPPED, n: usize) {
     if ov.is_null() {
         return;
     }
     (*ov).internal = 0;
     (*ov).internal_high = n;
-    if (*ov).h_event != 0 {
+    if crate::shim::aio::is_overlapped(h) {
+        crate::shim::aio::signal_and_post(h, ov, n);
+    } else if (*ov).h_event != 0 {
         crate::shim::k32_sync::SetEvent((*ov).h_event & !1);
     }
 }
 
 pub(crate) unsafe fn read_file(h: HANDLE, buf: *mut u8, n: DWORD, read: *mut DWORD, ov: *mut OVERLAPPED) -> BOOL {
+    if let Some(r) = crate::shim::aio::file_io(false, h, buf as usize, n, read, ov) {
+        return r;
+    }
     let r = with_file(h, |f| {
         let fd = f.fd();
         loop {
@@ -225,11 +243,14 @@ pub(crate) unsafe fn read_file(h: HANDLE, buf: *mut u8, n: DWORD, read: *mut DWO
             return FALSE;
         }
     }
-    finish_overlapped(ov, r as usize);
+    finish_overlapped(h, ov, r as usize);
     TRUE
 }
 
 pub(crate) unsafe fn write_file(h: HANDLE, buf: *const u8, n: DWORD, written: *mut DWORD, ov: *mut OVERLAPPED) -> BOOL {
+    if let Some(r) = crate::shim::aio::file_io(true, h, buf as usize, n, written, ov) {
+        return r;
+    }
     let r = with_file(h, |f| {
         let fd = f.fd();
         let mut done = 0usize;
@@ -259,7 +280,7 @@ pub(crate) unsafe fn write_file(h: HANDLE, buf: *const u8, n: DWORD, written: *m
             if !written.is_null() {
                 *written = done as DWORD;
             }
-            finish_overlapped(ov, done);
+            finish_overlapped(h, ov, done);
             TRUE
         }
     }
@@ -673,21 +694,6 @@ crate::shims! { "kernel32";
     fn ReadFileEx(_h: HANDLE, _buf: *mut u8, _n: DWORD, _ov: *mut OVERLAPPED, _cb: usize) -> BOOL {
         set_last_error(ERROR_NOT_SUPPORTED);
         FALSE
-    }
-    fn GetOverlappedResult(_h: HANDLE, ov: *const OVERLAPPED, bytes: *mut DWORD, _wait: BOOL) -> BOOL {
-        if !bytes.is_null() && !ov.is_null() {
-            *bytes = (*ov).internal_high as DWORD;
-        }
-        TRUE
-    }
-    fn GetOverlappedResultEx(h: HANDLE, ov: *const OVERLAPPED, bytes: *mut DWORD, _ms: DWORD, _alertable: BOOL) -> BOOL {
-        GetOverlappedResult(h, ov, bytes, TRUE)
-    }
-    fn CancelIo(_h: HANDLE) -> BOOL {
-        TRUE
-    }
-    fn CancelIoEx(_h: HANDLE, _ov: *const OVERLAPPED) -> BOOL {
-        TRUE
     }
     fn SetFilePointer(h: HANDLE, lo: i32, hi: *mut i32, method: DWORD) -> DWORD {
         let off = if hi.is_null() { lo as i64 } else { ((*hi as i64) << 32) | (lo as u32 as i64) };

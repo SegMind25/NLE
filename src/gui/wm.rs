@@ -183,7 +183,19 @@ pub const ERROR_TLW_WITH_WSCHILD: u32 = 1406;
 impl Gui {
     // ---- backend -----------------------------------------------------------------------------
 
+    /// The display, with the reason for a failure to open it printed (once): for what needs a window.
     pub fn ensure_backend(&mut self) -> Option<Arc<dyn Backend>> {
+        let backend = self.backend_quiet();
+        if backend.is_none() {
+            if let Some(e) = self.backend_error.take() {
+                eprintln!("nle: cannot open a window: {e}");
+            }
+        }
+        backend
+    }
+
+    /// The display if there is one; asking is no reason to complain, a console program may do it for the screen size.
+    pub fn backend_quiet(&mut self) -> Option<Arc<dyn Backend>> {
         if let Some(b) = &self.backend {
             return Some(b.clone());
         }
@@ -196,7 +208,7 @@ impl Gui {
                 Some(b)
             }
             Err(e) => {
-                eprintln!("nle: cannot open a window: {e}");
+                self.backend_error = Some(e.to_string());
                 self.backend_failed = true;
                 None
             }
@@ -204,7 +216,7 @@ impl Gui {
     }
 
     pub fn screen_size(&mut self) -> (i32, i32) {
-        match self.ensure_backend() {
+        match self.backend_quiet() {
             Some(b) => b.screen_size(),
             None => (1280, 800),
         }

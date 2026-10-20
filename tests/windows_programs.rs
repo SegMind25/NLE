@@ -69,6 +69,7 @@ fn built() -> Option<&'static Built> {
             run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_resource.exe")).arg(src.join("t_resource.c")).arg(&rc).arg("-lgdi32"));
         }
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_net.exe")).arg(src.join("t_net.c")).arg("-lws2_32"));
+        run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_overlapped.exe")).arg(src.join("t_overlapped.c")).arg("-lws2_32").arg("-lmswsock"));
         run(Command::new(&gcc).args(["-O1", "-o"]).arg(dir.join("t_registry.exe")).arg(src.join("t_registry.c")).arg("-lshlwapi"));
         run(Command::new(&gcc)
             .args(["-O1", "-shared", "-static-libgcc", "-o"])
@@ -172,6 +173,7 @@ program_tests! {
     dll_loading => case("t_dll");
     console_input => Case { name: "t_console", args: &[], stdin: "hello\nworld\n10 20\n" };
     sockets => case("t_net");
+    overlapped_io => case("t_overlapped");
     child_processes => case("t_process");
     registry => case("t_registry");
     job_objects_and_search_path => case("t_job");

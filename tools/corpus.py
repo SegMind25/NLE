@@ -38,6 +38,9 @@ PROGRAMS = [
     dict(name="hyperfine", url="https://github.com/sharkdp/hyperfine/releases/download/v1.19.0/hyperfine-v1.19.0-x86_64-pc-windows-msvc.zip", kind="zip", exe="hyperfine-v1.19.0-x86_64-pc-windows-msvc/hyperfine.exe", args=["--version"], expect="hyperfine 1.19.0"),
     dict(name="jq", url="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe", kind="exe", exe="jq.exe", args=["--version"], expect="jq-1.7.1"),
     dict(name="fzf", url="https://github.com/junegunn/fzf/releases/download/v0.55.0/fzf-0.55.0-windows_amd64.zip", kind="zip", exe="fzf.exe", args=["--version"], expect="0.55.0"),
+    dict(name="python", url="https://github.com/astral-sh/python-build-standalone/releases/download/20241206/cpython-3.12.8%2B20241206-x86_64-pc-windows-msvc-install_only.tar.gz", kind="tgz", exe="python/python.exe", args=["-c", "import asyncio, hashlib, json, socket, sqlite3, subprocess, zlib; print(6 * 7)"], expect="42"),
+    dict(name="node", url="https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.zip", kind="zip", exe="node-v22.12.0-win-x64/node.exe", args=["-p", "require('http') && require('fs') && 6 * 7"], expect="42"),
+    dict(name="neovim", url="https://github.com/neovim/neovim/releases/download/v0.10.3/nvim-win64.zip", kind="zip", exe="nvim-win64/bin/nvim.exe", args=["--headless", "-u", "NONE", "-c", "echo 6 * 7", "-c", "qa!"], expect="42"),
     dict(name="notepad++", url="https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.9/npp.8.7.9.portable.x64.zip", kind="zip", exe="notepad++.exe", args=[], expect=None, gui=True),
 ]
 

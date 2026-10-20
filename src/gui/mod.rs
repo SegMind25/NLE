@@ -178,6 +178,8 @@ pub struct Msg {
 pub struct Gui {
     pub backend: Option<Arc<dyn backend::Backend>>,
     pub backend_failed: bool,
+    /// why the display could not be opened, until it has been reported
+    pub backend_error: Option<String>,
     pub objects: HashMap<usize, gdi::Object>,
     pub windows: HashMap<usize, wm::Wnd>,
     pub classes: HashMap<String, Arc<wm::Class>>,
@@ -219,6 +221,7 @@ impl Gui {
         let mut g = Gui {
             backend: None,
             backend_failed: false,
+            backend_error: None,
             objects: HashMap::new(),
             windows: HashMap::new(),
             classes: HashMap::new(),

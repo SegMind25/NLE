@@ -2,8 +2,8 @@
 //!
 //! Sockets are host file descriptors, so a `SOCKET` is just the fd. The translation work is in the
 //! constants and structure layouts that differ between Winsock and Linux (address families, socket
-//! options, `fd_set`, `addrinfo`, error codes). Operations are synchronous; overlapped I/O is not
-//! implemented.
+//! options, `fd_set`, `addrinfo`, error codes). Operations are synchronous unless an `OVERLAPPED` is given:
+//! those go to the overlapped I/O engine in `aio.rs`.
 
 use crate::runtime::strings::*;
 use crate::win::*;
@@ -27,7 +27,7 @@ mod cc {
 const FIONBIO: u32 = 0x8004_667e;
 const FIONREAD: u32 = 0x4004_667f;
 
-fn wsa_error(errno: i32) -> DWORD {
+pub(crate) fn wsa_error(errno: i32) -> DWORD {
     match errno {
         libc::EINTR => 10004,
         libc::EBADF => 10009,
@@ -79,7 +79,7 @@ fn family_to_win(af: i32) -> i32 {
 }
 
 /// Converts a Windows `sockaddr` into a host one (only the family differs).
-unsafe fn sockaddr_to_host(addr: *const u8, len: i32) -> Vec<u8> {
+pub(crate) unsafe fn sockaddr_to_host(addr: *const u8, len: i32) -> Vec<u8> {
     let mut v = std::slice::from_raw_parts(addr, len.max(0) as usize).to_vec();
     if v.len() >= 2 {
         let fam = u16::from_le_bytes([v[0], v[1]]) as i32;
@@ -88,7 +88,7 @@ unsafe fn sockaddr_to_host(addr: *const u8, len: i32) -> Vec<u8> {
     v
 }
 
-unsafe fn sockaddr_to_win(src: &[u8], dst: *mut u8, len: *mut i32) {
+pub(crate) unsafe fn sockaddr_to_win(src: &[u8], dst: *mut u8, len: *mut i32) {
     if dst.is_null() || len.is_null() {
         return;
     }
@@ -298,6 +298,7 @@ crate::shims! { "ws2_32" => WS2_SHIMS;
         socket(af, ty, proto)
     }
     fn closesocket(s: SOCKET) -> i32 {
+        super::aio::on_close_handle(s as HANDLE);
         if libc::close(s as i32) != 0 { fail_errno() } else { 0 }
     }
     fn shutdown(s: SOCKET, how: i32) -> i32 {
@@ -350,8 +351,7 @@ crate::shims! { "ws2_32" => WS2_SHIMS;
     }
     fn WSASend(s: SOCKET, bufs: *const u8, count: u32, sent: *mut u32, flags: u32, ov: usize, _cb: usize) -> i32 {
         if ov != 0 {
-            set_last_error(ERROR_NOT_SUPPORTED);
-            return SOCKET_ERROR;
+            return super::aio::wsa_send(s, bufs, count, sent, None, ov);
         }
         match scatter_io(s, bufs, count, true, flags as i32, None) {
             Ok(n) => {
@@ -365,8 +365,7 @@ crate::shims! { "ws2_32" => WS2_SHIMS;
     }
     fn WSARecv(s: SOCKET, bufs: *const u8, count: u32, received: *mut u32, flags: *mut u32, ov: usize, _cb: usize) -> i32 {
         if ov != 0 {
-            set_last_error(ERROR_NOT_SUPPORTED);
-            return SOCKET_ERROR;
+            return super::aio::wsa_recv(s, bufs, count, received, None, ov);
         }
         let f = if flags.is_null() { 0 } else { *flags as i32 };
         match scatter_io(s, bufs, count, false, f, None) {
@@ -467,20 +466,6 @@ crate::shims! { "ws2_32" => WS2_SHIMS;
                 SOCKET_ERROR
             }
         }
-    }
-    fn WSAGetOverlappedResult(_s: SOCKET, ov: *const u8, transferred: *mut u32, _wait: BOOL, flags: *mut u32) -> BOOL {
-        // overlapped socket calls complete before they return here; OVERLAPPED.InternalHigh holds the byte count
-        if !transferred.is_null() && !ov.is_null() {
-            *transferred = *(ov.add(8) as *const u64) as u32;
-        }
-        if !flags.is_null() {
-            *flags = 0;
-        }
-        TRUE
-    }
-    fn WSAIoctl(_s: SOCKET, _code: u32, _inb: usize, _inl: u32, _outb: usize, _outl: u32, _ret: *mut u32, _ov: usize, _cb: usize) -> i32 {
-        set_last_error(10022);
-        SOCKET_ERROR
     }
     fn getsockopt(s: SOCKET, level: i32, name: i32, val: *mut u8, len: *mut i32) -> i32 {
         let Some((l, n)) = sockopt_to_host(level, name) else {

@@ -19,6 +19,8 @@ pub struct Trace {
     pub gdi: bool,
     /// Log every window message with the class of the window it goes to.
     pub msg: bool,
+    /// Log every `SetLastError` with the shim that set it.
+    pub err: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -38,6 +40,9 @@ pub struct Config {
     /// shipped. Opening `exe_host` then yields this file, so a program can find and start itself.
     pub elf_alias: Option<PathBuf>,
 }
+
+/// Set by `NLE_TRACE=err`; read by `set_last_error`.
+pub static TRACE_ERR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
@@ -68,6 +73,10 @@ pub fn trace_from_env() -> Trace {
                 "api" => t.api = true,
                 "gdi" => t.gdi = true,
                 "msg" => t.msg = true,
+                "err" => {
+                    t.err = true;
+                    TRACE_ERR.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 "all" => {
                     t.load = true;
                     t.bind = true;

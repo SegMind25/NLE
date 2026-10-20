@@ -387,6 +387,26 @@ fn cpu_info() -> (String, String, u32) {
 }
 
 /// What a fresh Windows 10 install would answer to the usual "which Windows is this" questions.
+/// HKLM\HARDWARE describes this machine and is rebuilt every time the hive is loaded, as Windows does at boot.
+fn seed_hardware(st: &mut State) {
+    let sz = |s: &str| utf16le(s, true);
+    let dw = |v: u32| v.to_le_bytes().to_vec();
+    let put = |st: &mut State, key: &str, name: &str, ty: u32, data: Vec<u8>| {
+        let (_, sub) = key.split_once('\\').unwrap_or((key, ""));
+        let (h, _) = st.open(0x8000_0002usize, sub, true).unwrap();
+        st.set_value(h, name, ty, data);
+        st.close(h);
+    };
+    let (name, vendor, mhz) = cpu_info();
+    for i in 0..crate::runtime::cpu_count() {
+        let cpu = format!("HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\{i}");
+        put(st, &cpu, "ProcessorNameString", REG_SZ, sz(&name));
+        put(st, &cpu, "VendorIdentifier", REG_SZ, sz(&vendor));
+        put(st, &cpu, "~MHz", REG_DWORD, dw(mhz));
+        put(st, &cpu, "Identifier", REG_SZ, sz("Intel64 Family 6 Model 85 Stepping 7"));
+    }
+}
+
 fn seed(st: &mut State) {
     let user = crate::runtime::user_name();
     fn put(st: &mut State, key: &str, name: &str, ty: u32, data: Vec<u8>) {
@@ -424,12 +444,6 @@ fn seed(st: &mut State) {
     put(st, cp, "OEMCP", REG_SZ, sz("65001"));
     put(st, cp, "MACCP", REG_SZ, sz("10000"));
     put(st, "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "MachineGuid", REG_SZ, sz(&machine_guid()));
-    let (name, vendor, mhz) = cpu_info();
-    let cpu = "HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
-    put(st, cpu, "ProcessorNameString", REG_SZ, sz(&name));
-    put(st, cpu, "VendorIdentifier", REG_SZ, sz(&vendor));
-    put(st, cpu, "~MHz", REG_DWORD, dw(mhz));
-    put(st, cpu, "Identifier", REG_SZ, sz("Intel64 Family 6 Model 85 Stepping 7"));
     let env = "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
     put(st, env, "OS", REG_SZ, sz("Windows_NT"));
     put(st, env, "PROCESSOR_ARCHITECTURE", REG_SZ, sz("AMD64"));
@@ -457,10 +471,15 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> (R, bool)) -> R {
     if reload {
         let handles = guard.as_ref().map(|s| (s.handles.clone(), s.next_handle));
         let mut st = match std::fs::read_to_string(&path) {
-            Ok(t) => State::parse(&t),
+            Ok(t) => {
+                let mut s = State::parse(&t);
+                seed_hardware(&mut s);
+                s
+            }
             Err(_) => {
                 let mut s = State::empty();
                 seed(&mut s);
+                seed_hardware(&mut s);
                 s.handles.clear();
                 s.next_handle = FIRST_DYNAMIC_HANDLE;
                 save(&mut s, &path);

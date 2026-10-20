@@ -708,7 +708,7 @@ fn system_metric(index: i32) -> i32 {
 // ---- rectangles --------------------------------------------------------------------------------------
 
 fn get_pointer() -> (i32, i32) {
-    with(|g| match g.ensure_backend() {
+    with(|g| match g.backend_quiet() {
         Some(b) => {
             let (x, y, _) = b.pointer();
             g.pointer = (x, y);
@@ -2241,7 +2241,7 @@ crate::shims! { "user32" => USER32_SHIMS;
     }
     fn EmptyClipboard() -> BOOL {
         with(|g| {
-            if let Some(b) = g.ensure_backend() {
+            if let Some(b) = g.backend_quiet() {
                 b.set_clipboard("");
             }
         });
@@ -2251,10 +2251,10 @@ crate::shims! { "user32" => USER32_SHIMS;
         if fmt != 1 && fmt != 13 {
             return FALSE;
         }
-        with(|g| g.ensure_backend().is_some_and(|b| !b.get_clipboard().is_empty())) as BOOL
+        with(|g| g.backend_quiet().is_some_and(|b| !b.get_clipboard().is_empty())) as BOOL
     }
     fn CountClipboardFormats() -> i32 {
-        with(|g| g.ensure_backend().is_some_and(|b| !b.get_clipboard().is_empty())) as i32
+        with(|g| g.backend_quiet().is_some_and(|b| !b.get_clipboard().is_empty())) as i32
     }
     fn SetClipboardData(fmt: u32, data: usize) -> usize {
         if data == 0 || (fmt != 1 && fmt != 13) {
@@ -2262,7 +2262,7 @@ crate::shims! { "user32" => USER32_SHIMS;
         }
         let text = if fmt == 13 { w_ptr_to_string(data as *const u16) } else { a_to_string(data as *const u8) };
         with(|g| {
-            if let Some(b) = g.ensure_backend() {
+            if let Some(b) = g.backend_quiet() {
                 b.set_clipboard(&text);
             }
         });
@@ -2272,7 +2272,7 @@ crate::shims! { "user32" => USER32_SHIMS;
         if fmt != 1 && fmt != 13 {
             return 0;
         }
-        let text = with(|g| g.ensure_backend().map(|b| b.get_clipboard())).unwrap_or_default();
+        let text = with(|g| g.backend_quiet().map(|b| b.get_clipboard())).unwrap_or_default();
         if text.is_empty() {
             return 0;
         }

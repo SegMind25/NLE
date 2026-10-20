@@ -212,6 +212,63 @@ pub fn temp_dir_win() -> String {
     }
 }
 
+/// `VerifyVersionInfo` against Windows 10 (10.0.19045, no service pack). Major, minor and service pack are compared
+/// the way Windows does: the first of them that differs decides, the later ones only matter when the earlier are equal.
+unsafe fn verify_version(v: *mut u8, mask: DWORD, cond: u64, wide: bool) -> BOOL {
+    const ERROR_OLD_WIN_VERSION: DWORD = 1150;
+    let get32 = |off: usize| *(v.add(off) as *const u32);
+    let get16 = |off: usize| *(v.add(off) as *const u16) as u32;
+    let sp = if wide { 20 + 256 } else { 20 + 128 };
+    let op = |idx: u32| ((cond >> (3 * idx)) & 7) as u32;
+    let fail = || {
+        set_last_error(ERROR_OLD_WIN_VERSION);
+        FALSE
+    };
+    // (mask bit, condition index, wanted, have)
+    let ordered: [(u32, u32, u32, u32); 4] = [(2, 1, get32(4), 10), (1, 0, get32(8), 0), (0x20, 5, get16(sp), 0), (0x10, 4, get16(sp + 2), 0)];
+    let mut decided = false;
+    let mut last_op = 3;
+    for (bit, idx, wanted, have) in ordered {
+        if mask & bit == 0 {
+            continue;
+        }
+        last_op = op(idx);
+        if have != wanted {
+            let ok = match last_op {
+                2 | 3 => have > wanted,
+                4 | 5 => have < wanted,
+                _ => false,
+            };
+            if !ok {
+                return fail();
+            }
+            decided = true;
+            break;
+        }
+    }
+    // everything compared equal: only conditions that allow equality hold
+    if !decided && ordered.iter().any(|f| mask & f.0 != 0) && !matches!(last_op, 1 | 3 | 5) {
+        return fail();
+    }
+    let independent: [(u32, u32, u32, u32); 2] = [(4, 2, get32(12), 19045), (8, 3, get32(16), 2)];
+    for (bit, idx, wanted, have) in independent {
+        if mask & bit == 0 {
+            continue;
+        }
+        let ok = match op(idx) {
+            2 => have > wanted,
+            3 => have >= wanted,
+            4 => have < wanted,
+            5 => have <= wanted,
+            _ => have == wanted,
+        };
+        if !ok {
+            return fail();
+        }
+    }
+    TRUE
+}
+
 crate::shims! { "kernel32";
     fn GetLastError() -> DWORD {
         last_error()
@@ -713,19 +770,26 @@ crate::shims! { "kernel32";
             }
         }
     }
-    fn SetDllDirectoryW(_p: LPCWSTR) -> BOOL {
+    fn SetDllDirectoryW(p: LPCWSTR) -> BOOL {
+        if !p.is_null() && *p != 0 {
+            loader::add_dll_directory(paths::resolve(&strings::w_ptr_to_string(p)));
+        }
         TRUE
     }
-    fn SetDllDirectoryA(_p: LPCSTR) -> BOOL {
+    fn SetDllDirectoryA(p: LPCSTR) -> BOOL {
+        if !p.is_null() && *p != 0 {
+            loader::add_dll_directory(paths::resolve(&strings::a_to_string(p)));
+        }
         TRUE
     }
     fn SetDefaultDllDirectories(_flags: DWORD) -> BOOL {
         TRUE
     }
-    fn AddDllDirectory(_p: LPCWSTR) -> usize {
-        1
+    fn AddDllDirectory(p: LPCWSTR) -> usize {
+        loader::add_dll_directory(paths::resolve(&strings::w_ptr_to_string(p)))
     }
-    fn RemoveDllDirectory(_c: usize) -> BOOL {
+    fn RemoveDllDirectory(c: usize) -> BOOL {
+        loader::remove_dll_directory(c);
         TRUE
     }
 
@@ -744,10 +808,21 @@ crate::shims! { "kernel32";
     fn GetVersionExA(v: *mut OSVERSIONINFOEXW) -> BOOL {
         fill_version(v)
     }
-    fn VerifyVersionInfoW(_v: *mut u8, _mask: DWORD, _cond: u64) -> BOOL {
-        TRUE
+    // compares the requested fields with Windows 10 (10.0.19045, no service pack); a field with no condition must be equal
+    fn VerifyVersionInfoW(v: *mut u8, mask: DWORD, cond: u64) -> BOOL {
+        verify_version(v, mask, cond, true)
     }
-    fn VerSetConditionMask(mask: u64, _ty: DWORD, _cond: u8) -> u64 {
+    fn VerifyVersionInfoA(v: *mut u8, mask: DWORD, cond: u64) -> BOOL {
+        verify_version(v, mask, cond, false)
+    }
+    // each field type has three bits of the condition mask, indexed by the bit it has in the type mask
+    fn VerSetConditionMask(mask: u64, ty: DWORD, cond: u8) -> u64 {
+        let mut mask = mask;
+        for i in 0..8 {
+            if ty & (1 << i) != 0 {
+                mask = (mask & !(7u64 << (3 * i))) | ((cond as u64 & 7) << (3 * i));
+            }
+        }
         mask
     }
     fn IsWow64Process(_h: HANDLE, out: *mut BOOL) -> BOOL {

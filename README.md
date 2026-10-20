@@ -47,10 +47,10 @@ NLE is a **compatibility layer for x86-64 Windows programs**: console tools, and
 | **programs with windows**: Win32 windows and messages, GDI drawing and text, buttons, check boxes, radio buttons, text boxes, list boxes, combo boxes, scroll bars, **menus and accelerators**, **dialog boxes from resources**, icons / bitmaps / strings from the executable, message boxes, timers (shown on an X11 display, see [docs/GUI.md](docs/GUI.md)) | **32-bit** programs and **.NET** programs |
 | the **common controls** (`comctl32`): tool bar, rebar, status bar, tab control, list view, tree view, progress / track / spin controls, image lists, `TaskDialog`; the **file dialogs** (`GetOpenFileName`, `GetSaveFileName`, `IFileOpenDialog`, `IFileSaveDialog`) | visual styles and theme manifests (controls draw in NLE's own classic-modern look) |
 | threads, locks, TLS, fiber-local storage, timers |  |
-| files, directories, case-insensitive paths, `C:\` drives, pipes, console I/O | overlapped / IOCP networking (blocking and non-blocking sockets work) |
+| files, directories, case-insensitive paths, `C:\` drives, pipes, console I/O | overlapped I/O on files opened without `FILE_FLAG_OVERLAPPED`, `ReadFileEx` completion routines |
 | structured exceptions, hardware faults (access violation, divide by zero), C++ exceptions (MinGW and MSVC, including `catch` funclets), `setjmp` / `longjmp` | anything that needs Windows kernel drivers, DRM, anti-cheat |
 | DLL loading (`LoadLibrary`, import DLLs next to the program, `DllMain`, TLS callbacks) | ARM64 hosts (x86-64 Linux only) |
-| Winsock sockets, `select`, name resolution | registry hive files, Windows services, COM servers and ActiveX |
+| Winsock sockets (also overlapped, with `AcceptEx` / `ConnectEx` and completion ports), `select`, name resolution | registry hive files, Windows services, COM servers and ActiveX |
 | the registry: a persistent hive under the prefix (shared with child processes), seeded with the usual Windows version keys | running as a sandbox: the program has your user's rights |
 | starting child processes (Windows children through `nle`, Linux programs directly, drive-path arguments translated for Linux ones), job objects |  |
 | Unicode, UTF-8 code page, wide-character APIs |  |

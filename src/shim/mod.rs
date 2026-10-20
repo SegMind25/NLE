@@ -4,11 +4,13 @@
 
 use crate::registry::Shim;
 
+pub mod crt_ext;
 pub mod crt_math;
 pub mod crt_printf;
 pub mod crt_setjmp;
 pub mod crt_startup;
 pub mod crt_stdio;
+pub mod aio;
 pub mod comctl32;
 pub mod com_filedlg;
 pub mod comdlg32;
@@ -17,8 +19,10 @@ pub mod gdi32;
 pub mod ini;
 pub mod crt_string;
 pub mod k32_console;
+pub mod k32_ext;
 pub mod k32_file;
 pub mod k32_mem;
+pub mod k32_pool;
 pub mod k32_proc;
 pub mod k32_res;
 pub mod k32_spawn;
@@ -27,6 +31,7 @@ pub mod k32_sync;
 pub mod k32_thread;
 pub mod k32_time;
 pub mod misc;
+pub mod net_ext;
 pub mod ntdll;
 pub mod ntdll_file;
 pub mod seh;
@@ -43,6 +48,17 @@ pub fn tables() -> Vec<&'static [Shim]> {
         k32_mem::SHIMS,
         comctl32::SHIMS,
         comdlg32::SHIMS,
+        k32_pool::POOL_SHIMS,
+        aio::AIO_WS2_SHIMS,
+        aio::AIO_K32_SHIMS,
+        k32_ext::K32_MORE_SHIMS,
+        k32_ext::USER32_MORE_SHIMS,
+        k32_ext::ADVAPI32_MORE_SHIMS,
+        k32_ext::CRYPT32_MORE_SHIMS,
+        k32_ext::DBGHELP_MORE_SHIMS,
+        k32_ext::NETAPI32_SHIMS,
+        net_ext::IPHLPAPI_SHIMS,
+        net_ext::WS2_NAME_SHIMS,
         k32_proc::SHIMS,
         k32_res::SHIMS,
         k32_spawn::SPAWN_SHIMS,
@@ -100,6 +116,7 @@ pub fn tables() -> Vec<&'static [Shim]> {
         user32::USER32_SHIMS,
         gdi32::GDI32_SHIMS,
         gdi32::MSIMG32_SHIMS,
+        crt_ext::SHIMS,
         crt_math::SHIMS,
         crt_startup::SHIMS,
         crt_startup::DATA,
