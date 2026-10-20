@@ -130,7 +130,7 @@ extern "C" fn thread_entry(arg: *mut c_void) -> *mut c_void {
     std::ptr::null_mut()
 }
 
-unsafe fn create_thread(stack: usize, start: usize, param: usize, flags: DWORD, tid_out: *mut DWORD) -> HANDLE {
+pub(crate) unsafe fn create_thread(stack: usize, start: usize, param: usize, flags: DWORD, tid_out: *mut DWORD) -> HANDLE {
     let obj = new_thread_obj(flags & CREATE_SUSPENDED != 0);
     let info = Box::into_raw(Box::new(StartInfo { start, param, obj: obj.clone() }));
     let mut attr: libc::pthread_attr_t = std::mem::zeroed();

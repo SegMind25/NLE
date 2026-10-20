@@ -68,6 +68,11 @@ unsafe fn ext_text_out(hdc: usize, x: i32, y: i32, options: u32, rect: *const i3
     with(|g| g.text_out(hdc, x, y, text, opaque)) as BOOL
 }
 
+/// Width and height of `text` in the font selected into `hdc`.
+pub fn text_extent_of(hdc: usize, text: &str) -> (i32, i32) {
+    with(|g| g.text_extent(hdc, text))
+}
+
 unsafe fn text_extent(hdc: usize, text: &str, size: *mut i32) -> BOOL {
     let (w, h) = with(|g| g.text_extent(hdc, text));
     *size = w;

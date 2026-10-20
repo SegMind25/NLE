@@ -179,8 +179,8 @@ crate::shims! { "bcrypt" => BCRYPT_SHIMS;
         random_fill(buf, len as usize);
         STATUS_SUCCESS
     }
-    fn BCryptOpenAlgorithmProvider(out: *mut usize, _id: LPCWSTR, _impl: LPCWSTR, _flags: ULONG) -> NTSTATUS {
-        *out = 1;
+    fn BCryptOpenAlgorithmProvider(out: *mut usize, id: LPCWSTR, _impl: LPCWSTR, flags: ULONG) -> NTSTATUS {
+        *out = super::winext::new_provider(&crate::runtime::strings::w_ptr_to_string(id), flags & 8 != 0);
         STATUS_SUCCESS
     }
     fn BCryptCloseAlgorithmProvider(_h: usize, _flags: ULONG) -> NTSTATUS {

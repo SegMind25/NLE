@@ -334,7 +334,7 @@ unsafe fn attr_data(win: &str, out: *mut WIN32_FILE_ATTRIBUTE_DATA) -> BOOL {
     }
 }
 
-fn wildcard(pat: &[char], name: &[char]) -> bool {
+pub(crate) fn wildcard(pat: &[char], name: &[char]) -> bool {
     match (pat.first(), name.first()) {
         (None, None) => true,
         (Some('*'), _) => wildcard(&pat[1..], name) || (!name.is_empty() && wildcard(pat, &name[1..])),

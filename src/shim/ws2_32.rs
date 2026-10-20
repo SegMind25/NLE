@@ -468,6 +468,16 @@ crate::shims! { "ws2_32" => WS2_SHIMS;
             }
         }
     }
+    fn WSAGetOverlappedResult(_s: SOCKET, ov: *const u8, transferred: *mut u32, _wait: BOOL, flags: *mut u32) -> BOOL {
+        // overlapped socket calls complete before they return here; OVERLAPPED.InternalHigh holds the byte count
+        if !transferred.is_null() && !ov.is_null() {
+            *transferred = *(ov.add(8) as *const u64) as u32;
+        }
+        if !flags.is_null() {
+            *flags = 0;
+        }
+        TRUE
+    }
     fn WSAIoctl(_s: SOCKET, _code: u32, _inb: usize, _inl: u32, _outb: usize, _outl: u32, _ret: *mut u32, _ov: usize, _cb: usize) -> i32 {
         set_last_error(10022);
         SOCKET_ERROR

@@ -1,6 +1,7 @@
 //! Process-wide runtime state shared by the loader and the Win32/CRT shims.
 
 pub mod handles;
+pub mod hash;
 pub mod paths;
 pub mod strings;
 pub mod teb;

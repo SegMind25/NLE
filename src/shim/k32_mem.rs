@@ -12,6 +12,63 @@ const PAGE: usize = 4096;
 static ALLOCS: Mutex<BTreeMap<usize, usize>> = Mutex::new(BTreeMap::new());
 static VIEWS: Mutex<Option<HashMap<usize, usize>>> = Mutex::new(None);
 
+/// `NLE_HEAPGUARD=1`: small `HeapAlloc` blocks end exactly at an inaccessible page, so a program that writes past the
+/// end of a block faults on the writing instruction instead of corrupting the heap and failing much later.
+mod guard {
+    use super::*;
+    use std::sync::OnceLock;
+
+    /// Blocks up to this size are guarded; a block costs a mapping or two of the process's limited number.
+    const MAX_BLOCK: usize = 1024;
+    const MAX_LIVE: usize = 24_000;
+
+    static ON: OnceLock<bool> = OnceLock::new();
+    /// user pointer -> (mapping start, mapping length, requested size)
+    static LIVE: Mutex<Option<HashMap<usize, (usize, usize, usize)>>> = Mutex::new(None);
+
+    pub fn enabled() -> bool {
+        *ON.get_or_init(|| std::env::var("NLE_HEAPGUARD").is_ok_and(|v| v != "0"))
+    }
+
+    pub unsafe fn alloc(size: usize) -> *mut u8 {
+        let mut live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+        let map = live.get_or_insert_with(HashMap::new);
+        if size == 0 || size > MAX_BLOCK || map.len() >= MAX_LIVE {
+            return std::ptr::null_mut();
+        }
+        let data_pages = round_up(size, PAGE);
+        let len = data_pages + PAGE;
+        let base = libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0);
+        if base == libc::MAP_FAILED {
+            return std::ptr::null_mut();
+        }
+        libc::mprotect((base as usize + data_pages) as *mut libc::c_void, PAGE, libc::PROT_NONE);
+        // as aligned as the size allows, so blocks that hold structures stay usable
+        let align = (1usize << size.trailing_zeros()).min(16);
+        let user = (base as usize + data_pages - size) & !(align - 1);
+        let user = if user + size > base as usize + data_pages { user - align } else { user };
+        map.insert(user, (base as usize, len, size));
+        user as *mut u8
+    }
+
+    pub fn size_of(ptr: usize) -> Option<usize> {
+        LIVE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&ptr)).map(|e| e.2)
+    }
+
+    /// Releases a guarded block; false when `ptr` is not one.
+    pub unsafe fn free(ptr: usize) -> bool {
+        let entry = LIVE.lock().unwrap_or_else(|e| e.into_inner()).as_mut().and_then(|m| m.remove(&ptr));
+        match entry {
+            Some((base, len, _)) => {
+                // keep the address range reserved but unusable so a use after free faults too
+                libc::mprotect(base as *mut libc::c_void, len, libc::PROT_NONE);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 fn round_up(v: usize, to: usize) -> usize {
     (v + to - 1) & !(to - 1)
 }
@@ -354,6 +411,12 @@ crate::shims! { "kernel32";
         TRUE
     }
     fn HeapAlloc(_heap: HANDLE, flags: DWORD, size: usize) -> *mut u8 {
+        if guard::enabled() {
+            let g = guard::alloc(size);
+            if !g.is_null() {
+                return g;
+            }
+        }
         let p = if flags & HEAP_ZERO_MEMORY != 0 { libc::calloc(1, size.max(1)) } else { libc::malloc(size.max(1)) };
         if p.is_null() {
             set_last_error(ERROR_NOT_ENOUGH_MEMORY);
@@ -363,6 +426,18 @@ crate::shims! { "kernel32";
     fn HeapReAlloc(_heap: HANDLE, flags: DWORD, ptr: *mut u8, size: usize) -> *mut u8 {
         if ptr.is_null() {
             return std::ptr::null_mut();
+        }
+        if let Some(old) = guard::size_of(ptr as usize) {
+            // a guarded block moves to a fresh block (guarded again when small enough)
+            if flags & HEAP_REALLOC_IN_PLACE_ONLY != 0 && size > old {
+                return std::ptr::null_mut();
+            }
+            let n = HeapAlloc(_heap, flags & HEAP_ZERO_MEMORY, size);
+            if !n.is_null() {
+                std::ptr::copy_nonoverlapping(ptr, n, old.min(size));
+                HeapFree(_heap, 0, ptr);
+            }
+            return n;
         }
         let old = libc::malloc_usable_size(ptr as *mut libc::c_void);
         if flags & HEAP_REALLOC_IN_PLACE_ONLY != 0 && size > old {
@@ -379,6 +454,9 @@ crate::shims! { "kernel32";
         p
     }
     fn HeapFree(_heap: HANDLE, _flags: DWORD, ptr: *mut u8) -> BOOL {
+        if guard::enabled() && guard::free(ptr as usize) {
+            return TRUE;
+        }
         if !ptr.is_null() {
             libc::free(ptr as *mut libc::c_void);
         }
@@ -387,6 +465,9 @@ crate::shims! { "kernel32";
     fn HeapSize(_heap: HANDLE, _flags: DWORD, ptr: *const u8) -> usize {
         if ptr.is_null() {
             return usize::MAX;
+        }
+        if let Some(n) = guard::size_of(ptr as usize) {
+            return n;
         }
         libc::malloc_usable_size(ptr as *mut libc::c_void)
     }

@@ -492,6 +492,10 @@ unsafe fn dispatch_inner(rec: *mut EXCEPTION_RECORD, ctx: *mut CONTEXT) -> Dispa
     if run_vectored(rec, ctx) {
         return Dispatch::Continue;
     }
+    if crate::runtime::cfg().trace.api {
+        let r = &*rec;
+        eprintln!("nle[seh]: raise code={:#010x} flags={:#x} at={} params={:x?}", r.code, r.flags, describe_address((*ctx).rip as usize), &r.information[..(r.number_parameters as usize).min(EXCEPTION_MAXIMUM_PARAMETERS)]);
+    }
     let mut c: CONTEXT = *ctx;
     let mut base = inflight_len() - 1;
     for _ in 0..8192 {
@@ -745,10 +749,20 @@ unsafe fn unwind_ex(target_frame: u64, target_ip: u64, rec: *mut EXCEPTION_RECOR
         }
     }
     ctx.rax = ret;
-    if target_ip != 0 {
+    ctx.context_flags = CONTEXT_FULL;
+    if (*rec).code == STATUS_UNWIND_CONSOLIDATE && (*rec).number_parameters >= 1 && (*rec).information[0] != 0 {
+        // The Visual C++ runtime runs the catch block from this callback, after the frames below are unwound,
+        // and gets the address to continue at from it. A raise inside the block continues its frame walk
+        // from the target frame, as if the callback had been called from there.
+        let callback: unsafe extern "win64" fn(*mut EXCEPTION_RECORD) -> u64 = std::mem::transmute((*rec).information[0]);
+        let hdepth = inflight_len();
+        push_inflight(&own_marker, Kind::Handler(&ctx));
+        let resume = callback(rec);
+        truncate_inflight(hdepth);
+        ctx.rip = resume;
+    } else if target_ip != 0 {
         ctx.rip = target_ip;
     }
-    ctx.context_flags = CONTEXT_FULL;
     restore(&ctx, rec)
 }
 

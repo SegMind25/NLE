@@ -248,10 +248,32 @@ static MESSAGES: &[(DWORD, &str)] = &[
     (1168, "Element not found."),
     (1314, "A required privilege is not held by the client."),
     (1460, "This operation returned because the timeout period expired."),
+    (0x8000_4001, "Not implemented"),
+    (0x8000_4002, "No such interface supported"),
+    (0x8000_4003, "Invalid pointer"),
+    (0x8000_4005, "Unspecified error"),
+    (0x8000_FFFF, "Catastrophic failure"),
+    (0x8004_0154, "Class not registered"),
+    (0x8007_000E, "Not enough memory resources are available to complete this operation."),
+    (0x8009_000F, "Object already exists."),
+    (0x8009_0008, "Invalid algorithm specified."),
+    (0x8009_2004, "Cannot find object or property."),
+    (0x800B_0100, "No signature was present in the subject."),
+    (0x800B_0109, "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider."),
+    (0x800B_010A, "A certificate chain could not be built to a trusted root authority."),
+    (0x2EE7, "The server name or address could not be resolved"),
+    (0x2EFD, "A connection with the server could not be established"),
 ];
 
 pub fn system_message(id: DWORD) -> Option<&'static str> {
-    MESSAGES.iter().find(|(c, _)| *c == id).map(|(_, m)| *m)
+    if let Some((_, m)) = MESSAGES.iter().find(|(c, _)| *c == id) {
+        return Some(m);
+    }
+    // HRESULT_FROM_WIN32: the low word is a system error code
+    if id >> 16 == 0x8007 {
+        return MESSAGES.iter().find(|(c, _)| *c == id & 0xffff).map(|(_, m)| *m);
+    }
+    None
 }
 
 unsafe fn slot_args(flags: DWORD, args: *const usize) -> *const usize {

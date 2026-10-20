@@ -12,6 +12,7 @@ pub mod crt_stdio;
 pub mod comctl32;
 pub mod crt_stdlib;
 pub mod gdi32;
+pub mod ini;
 pub mod crt_string;
 pub mod k32_console;
 pub mod k32_file;
@@ -28,6 +29,8 @@ pub mod ntdll;
 pub mod ntdll_file;
 pub mod seh;
 pub mod user32;
+pub mod winext;
+pub mod winext_gui;
 pub mod winreg;
 pub mod ws2_32;
 
@@ -56,6 +59,26 @@ pub fn tables() -> Vec<&'static [Shim]> {
         ntdll_file::NTFILE_SHIMS,
         ntdll_file::IOCP_SHIMS,
         misc::BCRYPT_SHIMS,
+        winext::UXTHEME_SHIMS,
+        winext::IMM_SHIMS,
+        winext::DWM_SHIMS,
+        winext::SENSAPI_SHIMS,
+        winext::OLEAUT_EXT_SHIMS,
+        winext::OLE_EXT_SHIMS,
+        winext::SHELL_EXT_SHIMS,
+        winext::SHLWAPI_EXT_SHIMS,
+        winext::ADVAPI_EXT_SHIMS,
+        winext::BCRYPT_HASH_SHIMS,
+        winext::CRYPT32_SHIMS,
+        winext::WINTRUST_SHIMS,
+        winext::WININET_SHIMS,
+        winext::DBGHELP_SHIMS,
+        winext::K32_EXT_SHIMS,
+        ini::INI_SHIMS,
+        winext::COMCTL_EXT_SHIMS,
+        winext_gui::GDI_EXT_SHIMS,
+        winext_gui::USER_EXT2_SHIMS,
+        winext::SHELL_DIR_SHIMS,
         misc::ADVAPI_SHIMS,
         winreg::REG_SHIMS,
         winreg::SHREG_SHIMS,

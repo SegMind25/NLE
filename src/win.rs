@@ -107,6 +107,9 @@ pub const STATUS_BUFFER_TOO_SMALL: NTSTATUS = 0xc000_0023u32 as i32;
 pub const STATUS_NONCONTINUABLE_EXCEPTION: u32 = 0xc000_0025;
 pub const STATUS_INVALID_DISPOSITION: u32 = 0xc000_0026;
 pub const STATUS_UNWIND: u32 = 0xc000_0027;
+/// A C++ runtime asks the unwinder to call back once the target frame is reached (`ExceptionInformation[0]` is the
+/// callback); it returns the address to resume at, so a catch block runs after the frames below it are unwound.
+pub const STATUS_UNWIND_CONSOLIDATE: u32 = 0x8000_0029;
 pub const STATUS_BAD_STACK: u32 = 0xc000_0028;
 pub const STATUS_INVALID_UNWIND_TARGET: u32 = 0xc000_0029;
 pub const STATUS_OBJECT_NAME_NOT_FOUND: NTSTATUS = 0xc000_0034u32 as i32;

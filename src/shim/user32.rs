@@ -2433,6 +2433,11 @@ unsafe fn draw_text(hdc: usize, text: usize, n: i32, r: *mut i32, flags: u32, wi
 }
 
 /// `DrawEdge`: raised / sunken / etched bevels in the system 3-D colours.
+/// `DrawEdge` for the other shim modules.
+pub(crate) unsafe fn draw_edge_pub(hdc: usize, r: *mut i32, edge: u32, flags: u32) -> BOOL {
+    draw_edge(hdc, r, edge, flags)
+}
+
 unsafe fn draw_edge(hdc: usize, r: *mut i32, edge: u32, flags: u32) -> BOOL {
     use crate::gui::gdi::sys_color;
     let rect = rect_from(r);

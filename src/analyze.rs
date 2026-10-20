@@ -90,7 +90,7 @@ fn import_status(imp: &Import, exe_dir: Option<&Path>, bundled: &mut Vec<PathBuf
     if registry::is_system_dll(&imp.dll) {
         let ok = match &imp.name {
             ImportName::Name { name, .. } => registry::resolve(&imp.dll, name).is_some(),
-            ImportName::Ordinal(_) => false,
+            ImportName::Ordinal(o) => registry::ordinal_name(&imp.dll, *o as u32).is_some_and(|n| registry::resolve(&imp.dll, n).is_some()),
         };
         return if ok { Status::Resolved } else { Status::Unresolved };
     }
