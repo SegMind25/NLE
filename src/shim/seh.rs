@@ -597,7 +597,7 @@ unsafe fn raise_noncontinuable(rec: *mut EXCEPTION_RECORD) -> ! {
     finish_dispatch(&mut nr, &mut ctx)
 }
 
-fn describe_address(addr: usize) -> String {
+pub fn describe_address(addr: usize) -> String {
     match loader::module_from_addr(addr) {
         Some(m) => format!("{}+0x{:x}", m.name, addr - m.base),
         None => format!("0x{addr:x}"),

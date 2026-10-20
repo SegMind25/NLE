@@ -615,6 +615,9 @@ crate::shims! { "gdi32" => GDI32_SHIMS;
         with(|g| g.pat_blt(hdc, x, y, w, h, rop)) as BOOL
     }
     fn BitBlt(dst: usize, dx: i32, dy: i32, w: i32, h: i32, src: usize, sx: i32, sy: i32, rop: u32) -> BOOL {
+        if crate::runtime::cfg().trace.gdi {
+            eprintln!("nle[gdi]: BitBlt dst={dst:#x} ({dx},{dy} {w}x{h}) src={src:#x} ({sx},{sy}) rop={rop:#x}");
+        }
         with(|g| g.bit_blt(dst, dx, dy, w, h, src, sx, sy, rop)) as BOOL
     }
     fn StretchBlt(dst: usize, dx: i32, dy: i32, dw: i32, dh: i32, src: usize, sx: i32, sy: i32, sw: i32, sh: i32, rop: u32) -> BOOL {

@@ -1328,6 +1328,38 @@ crate::shims! { "kernel32" => K32_EXT_SHIMS;
 }
 
 crate::shims! { "comctl32" => COMCTL_EXT_SHIMS;
+    // IMAGEINFO: hbmImage @0, hbmMask @8, two unused ints, rcImage @24. The image comes back as a bitmap of its own
+    fn ImageList_GetImageInfo(himl: usize, index: i32, info: *mut u8) -> BOOL {
+        use crate::gui::gdi::{Bitmap, Object};
+        use crate::gui::surface::Surface;
+        if info.is_null() {
+            return FALSE;
+        }
+        crate::gui::with(|g| {
+            let Some(l) = g.imagelist(himl) else { return FALSE };
+            let Some((rgb, alpha)) = l.images.get(index.max(0) as usize).cloned() else { return FALSE };
+            let (w, h) = (l.w, l.h);
+            let mut color = Surface::new(w, h);
+            let mut mask = Surface::new(w, h);
+            for y in 0..h {
+                for x in 0..w {
+                    let i = (y * w + x) as usize;
+                    color.put(x, y, rgb[i]);
+                    mask.put(x, y, if alpha[i] > 0x7f { 0 } else { 0xffffff });
+                }
+            }
+            let hc = g.add_object(Object::Bitmap(Bitmap { surf: color, bpp: 32, bits: 0 }));
+            let hm = g.add_object(Object::Bitmap(Bitmap { surf: mask, bpp: 1, bits: 0 }));
+            *(info as *mut usize) = hc;
+            *(info.add(8) as *mut usize) = hm;
+            let r = info.add(24) as *mut i32;
+            *r = 0;
+            *r.add(1) = 0;
+            *r.add(2) = w;
+            *r.add(3) = h;
+            TRUE
+        })
+    }
     // the icon in the size asked for, or a failure code that makes the caller fall back to LoadImage
     fn LoadIconWithScaleDown(inst: usize, name: usize, cx: i32, cy: i32, out: *mut usize) -> i32 {
         let h = crate::shim::user32::LoadImageW(inst, name, 1, cx, cy, 0);

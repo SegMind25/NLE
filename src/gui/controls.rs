@@ -83,6 +83,7 @@ pub enum Ctl {
     ListView(Box<super::ctl_listview::ListView>),
     Tree(Box<super::ctl_treeview::Tree>),
     Toolbar(Box<super::ctl_toolbar::Toolbar>),
+    Rebar(Box<super::ctl_rebar::Rebar>),
 }
 
 #[derive(Default, Clone)]

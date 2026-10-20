@@ -329,6 +329,10 @@ pub unsafe fn set_window_pos(h: usize, x: i32, y: i32, cx: i32, cy: i32, flags: 
     const NOZORDER: u32 = 4;
     const SHOWWINDOW: u32 = 0x40;
     const HIDEWINDOW: u32 = 0x80;
+    if crate::runtime::cfg().trace.api {
+        let class = with(|g| g.windows.get(&h).map(|w| w.class.name.clone())).unwrap_or_default();
+        eprintln!("nle[gui]: SetWindowPos {h:#x} {class} ({x},{y} {cx}x{cy}) flags={flags:#x}");
+    }
     let info = with(|g| {
         let w = g.windows.get(&h)?;
         let old = w.rect;
@@ -389,8 +393,33 @@ pub fn cursor_kind(hcursor: usize) -> Cursor {
 
 // ---- painting ----------------------------------------------------------------------------------------
 
+thread_local! {
+    /// `WM_PRINTCLIENT` / `WM_PAINT` with a device context in `wParam`: the window to paint and the context to paint into.
+    static PRINT_DC: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// Runs `f` with painting of window `h` redirected to `hdc`: `BeginPaint` hands out `hdc` and paints all of the client area.
+pub fn with_print_dc<R>(h: usize, hdc: usize, f: impl FnOnce() -> R) -> R {
+    let old = PRINT_DC.with(|c| c.replace((h, hdc)));
+    let r = f();
+    PRINT_DC.with(|c| c.set(old));
+    r
+}
+
 /// `BeginPaint`: erases the invalid area if needed, validates it, and returns a DC clipped to it.
 pub unsafe fn begin_paint(h: usize, ps: *mut u8) -> usize {
+    let (ph, pdc) = PRINT_DC.with(|c| c.get());
+    if pdc != 0 && ph == h {
+        let (cw, ch) = with(|g| g.windows.get(&h).map_or((0, 0), |w| w.client_size()));
+        if !ps.is_null() {
+            std::ptr::write_bytes(ps, 0, 72);
+            *(ps as *mut u64) = pdc as u64;
+            let r = ps.add(12) as *mut i32;
+            *r.add(2) = cw;
+            *r.add(3) = ch;
+        }
+        return pdc;
+    }
     let taken = with(|g| {
         g.paint_nc(h);
         let w = g.windows.get_mut(&h)?;
@@ -402,6 +431,9 @@ pub unsafe fn begin_paint(h: usize, ps: *mut u8) -> usize {
         Some((hdc, rc, erase))
     });
     let Some((hdc, rc, erase)) = taken else { return 0 };
+    if crate::runtime::cfg().trace.gdi {
+        eprintln!("nle[gdi]: BeginPaint {h:#x} update={rc:?} erase={erase} -> dc {hdc:#x}");
+    }
     let mut f_erase = 0u32;
     if erase && send_message(h, WM_ERASEBKGND, hdc, 0, false) == 0 {
         f_erase = 1;
@@ -424,6 +456,10 @@ pub unsafe fn end_paint(_h: usize, ps: *const u8) -> bool {
         return false;
     }
     let hdc = *(ps as *const u64) as usize;
+    // a context the program supplied is the program's to release
+    if PRINT_DC.with(|c| c.get().1) == hdc {
+        return true;
+    }
     with(|g| {
         g.delete_dc(hdc);
         g.flush();

@@ -346,6 +346,9 @@ impl Gui {
         let view = self.view(hdc)?;
         let (ox, oy, rop) = (view.ox, view.oy, view.rop2);
         let clips = view.clips.clone();
+        if crate::runtime::cfg().trace.gdi {
+            eprintln!("nle[gdi]: draw hdc={hdc:#x} target={:?} origin=({ox},{oy}) clips={:?}", view.target, clips);
+        }
         let surf = self.target_surface(&view.target, view.bitmap)?;
         let mut last = None;
         for clip in clips {

@@ -122,7 +122,12 @@ unsafe fn class_name_of(h: usize, buf: usize, cap: i32, wide: bool) -> i32 {
 
 #[allow(clippy::too_many_arguments)]
 unsafe fn create_window(ex: u32, class: usize, title: usize, style: u32, x: i32, y: i32, w: i32, h: i32, parent: usize, menu: usize, inst: usize, param: usize, wide: bool) -> usize {
-    api::create_window_ex(CreateArgs { ex_style: ex, class: class_ref(class, wide), title: text_arg(title, wide), style, x, y, w, h, parent, menu, hinstance: inst, param, ansi: !wide })
+    let h_new = api::create_window_ex(CreateArgs { ex_style: ex, class: class_ref(class, wide), title: text_arg(title, wide), style, x, y, w, h, parent, menu, hinstance: inst, param, ansi: !wide });
+    if crate::runtime::cfg().trace.api {
+        let c = class_ref(class, wide);
+        eprintln!("nle[gui]: CreateWindowEx class={c:?} title={:?} style={style:#x} ex={ex:#x} rect=({x},{y},{w},{h}) parent={parent:#x} -> {h_new:#x}", text_arg(title, wide));
+    }
+    h_new
 }
 
 unsafe fn window_long(h: usize, index: i32, ptr: bool) -> isize {
@@ -993,6 +998,9 @@ crate::shims! { "user32" => USER32_SHIMS;
     fn GetClientRect(h: usize, out: *mut i32) -> BOOL {
         match with(|g| g.windows.get(&h).map(|w| w.client_size())) {
             Some((w, hh)) => {
+                if crate::runtime::cfg().trace.api {
+                    eprintln!("nle[gui]: GetClientRect {h:#x} -> {w}x{hh}");
+                }
                 rect_to(out, Rect::new(0, 0, w, hh));
                 TRUE
             }
@@ -1058,8 +1066,18 @@ crate::shims! { "user32" => USER32_SHIMS;
     }
     fn SetWindowPlacement(h: usize, wp: *const u8) -> BOOL {
         let r = rect_from(wp.add(28) as *const i32);
+        let cmd = *(wp.add(8) as *const u32) as i32;
+        // the window is shown and sized in one step: the WM_SIZE it gets already sees a visible window, which programs
+        // lay their children out by (IsWindowVisible decides what counts)
+        if matches!(cmd, 1 | 4 | 5 | 8 | 9 | 10) {
+            with(|g| {
+                if let Some(w) = g.windows.get_mut(&h) {
+                    w.style |= WS_VISIBLE;
+                }
+            });
+        }
         api::set_window_pos(h, r.l, r.t, r.width(), r.height(), 4);
-        api::show_window(h, *(wp.add(8) as *const u32) as i32);
+        api::show_window(h, cmd);
         TRUE
     }
     fn AdjustWindowRect(r: *mut i32, style: u32, menu: BOOL) -> BOOL {

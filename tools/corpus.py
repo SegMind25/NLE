@@ -79,10 +79,13 @@ def smoke(p: dict, exe: Path) -> str:
     env = dict(os.environ, NLE_PREFIX=str(CORPUS / ".prefix"))
     try:
         if p.get("gui"):
-            env.update(NLE_GUI="headless", NLE_GUI_SCRIPT="wait 3000; snapshot %s; close" % (CORPUS / p["name"] / "shot.png"))
+            shot = CORPUS / p["name"] / "shot.png"
+            shot.unlink(missing_ok=True)
+            env.update(NLE_GUI="headless", NLE_GUI_SCRIPT="wait 3000; snapshot %s; close" % shot)
             r = subprocess.run([str(NLE), "run", "--backend", "native", str(exe)] + p["args"], capture_output=True, text=True, timeout=60, env=env, cwd=exe.parent)
-            ok = (CORPUS / p["name"] / "shot.png").exists()
-            return "ok (window drawn)" if ok else f"FAIL exit {r.returncode}: {(r.stderr or r.stdout).strip()[-160:]}"
+            # a window is only a success when the program also came through the script's close without a fatal error
+            ok = shot.exists() and r.returncode == 0 and "nle: fatal" not in r.stderr and "unhandled exception" not in r.stderr
+            return "ok (window drawn, closed cleanly)" if ok else f"FAIL exit {r.returncode}: {(r.stderr or r.stdout).strip()[-160:]}"
         r = subprocess.run([str(NLE), "run", "--backend", "native", str(exe)] + p["args"], capture_output=True, text=True, timeout=60, env=env, cwd=exe.parent)
         text = r.stdout + r.stderr
         if p["expect"] and p["expect"] in text:

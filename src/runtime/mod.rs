@@ -15,6 +15,10 @@ pub struct Trace {
     pub load: bool,
     pub bind: bool,
     pub api: bool,
+    /// Log every drawing operation with its target window and clip.
+    pub gdi: bool,
+    /// Log every window message with the class of the window it goes to.
+    pub msg: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -62,6 +66,8 @@ pub fn trace_from_env() -> Trace {
                 "load" => t.load = true,
                 "bind" => t.bind = true,
                 "api" => t.api = true,
+                "gdi" => t.gdi = true,
+                "msg" => t.msg = true,
                 "all" => {
                     t.load = true;
                     t.bind = true;

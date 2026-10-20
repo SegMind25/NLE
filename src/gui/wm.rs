@@ -169,6 +169,7 @@ pub struct CreateArgs {
     pub ansi: bool,
 }
 
+#[derive(Debug)]
 pub enum ClassRef {
     Name(String),
     Atom(u16),
@@ -404,15 +405,21 @@ impl Gui {
         let parent = if is_child { a.parent } else { 0 };
         let owner = if !is_child && self.windows.contains_key(&a.parent) { a.parent } else { 0 };
         let default_size = (800, 600);
+        // CW_USEDEFAULT picks a position and size only for overlapped windows; a child or pop-up gets zeros
+        let overlapped = !is_child && a.style & WS_POPUP == 0;
         let (x, y) = if a.x == CW_USEDEFAULT || a.y == CW_USEDEFAULT {
-            let n = self.windows.values().filter(|w| w.parent == 0).count() as i32;
-            ((60 + 28 * n).min((sw - 200).max(0)), (60 + 28 * n).min((sh - 200).max(0)))
+            if overlapped {
+                let n = self.windows.values().filter(|w| w.parent == 0).count() as i32;
+                ((60 + 28 * n).min((sw - 200).max(0)), (60 + 28 * n).min((sh - 200).max(0)))
+            } else {
+                (0, 0)
+            }
         } else {
             (a.x, a.y)
         };
         let explicit_pos = a.x != CW_USEDEFAULT && a.y != CW_USEDEFAULT;
-        let w = if a.w == CW_USEDEFAULT { if is_child { 100 } else { default_size.0 } } else { a.w };
-        let h = if a.h == CW_USEDEFAULT { if is_child { 30 } else { default_size.1 } } else { a.h };
+        let w = if a.w == CW_USEDEFAULT { if overlapped { default_size.0 } else { 0 } } else { a.w };
+        let h = if a.h == CW_USEDEFAULT { if overlapped { default_size.1 } else { 0 } } else { a.h };
         let hwnd = self.alloc_handle();
         let menu = if !is_child && self.menus.contains_key(&a.menu) { a.menu } else { 0 };
         let style = a.style & !WS_VISIBLE;

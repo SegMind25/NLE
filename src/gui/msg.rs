@@ -63,6 +63,10 @@ pub unsafe fn call_proc(proc_: usize, hwnd: usize, msg: u32, wp: usize, lp: isiz
     if proc_ == 0 {
         return 0;
     }
+    if crate::runtime::cfg().trace.msg {
+        let class = with(|g| g.windows.get(&hwnd).map(|w| w.class.name.clone())).unwrap_or_default();
+        eprintln!("nle[msg]: {hwnd:#x} {class} {msg:#06x} wp={wp:#x} lp={lp:#x} proc={}", crate::shim::seh::describe_address(proc_));
+    }
     let f: WndProc = std::mem::transmute(proc_);
     f(hwnd, msg, wp, lp)
 }
@@ -363,6 +367,14 @@ impl Gui {
                 }
                 Event::Script(ScriptAction::Snapshot(path)) => {
                     let h = self.main_window();
+                    if crate::runtime::cfg().trace.api {
+                        for c in self.subtree(h) {
+                            if let Some(w) = self.windows.get(&c) {
+                                let r = w.rect;
+                                eprintln!("nle[gui]: window {c:#x} {:<18} ({},{} {}x{}) {}{} {:?} style={:#x} update={:?} parent={:#x}", w.class.name, r.l, r.t, r.width(), r.height(), if w.visible_flag() { "visible" } else { "hidden" }, if w.parent == 0 { " top" } else { "" }, w.text, w.style, w.update, w.parent);
+                            }
+                        }
+                    }
                     if let Some(s) = self.windows.get(&h).and_then(|w| w.surface.as_ref()) {
                         let mut rgb = Vec::with_capacity((s.w * s.h * 3) as usize);
                         for y in 0..s.h {
@@ -661,6 +673,9 @@ unsafe fn send_local(hwnd: usize, msg: u32, wp: usize, lp: isize, ansi: bool) ->
     // the window's own procedure sees strings in the encoding of its class, unless the caller is
     // an ANSI entry point talking to a Unicode window, in which case the strings are converted
     let _ = unicode;
+    if msg == WM_PAINT && wp != 0 {
+        return super::api::with_print_dc(hwnd, wp, || with_ansi(ansi, || call_proc(proc_, hwnd, msg, wp, lp)));
+    }
     with_ansi(ansi, || call_proc(proc_, hwnd, msg, wp, lp))
 }
 
@@ -775,6 +790,30 @@ pub unsafe fn def_window_proc(hwnd: usize, msg: u32, wp: usize, lp: isize, ansi:
             let mut ps = [0u8; 72];
             api::begin_paint(hwnd, ps.as_mut_ptr());
             api::end_paint(hwnd, ps.as_ptr());
+            0
+        }
+        // WM_PRINT: wParam is the context to draw into, lParam says what: the background, the client area
+        0x0317 => {
+            if lp & 0x8 != 0 {
+                send_message(hwnd, WM_ERASEBKGND, wp, 0, ansi);
+            }
+            if lp & 0x4 != 0 {
+                send_message(hwnd, 0x0318, wp, lp, ansi);
+            }
+            0
+        }
+        // WM_PRINTCLIENT: paint the client area into the context in wParam
+        0x0318 => {
+            // a built-in control paints itself from its own procedure (a subclass that double buffers WM_PAINT
+            // must not see this one again); any other window gets a WM_PAINT carrying the context
+            match with(|g| g.windows.get(&hwnd).filter(|w| w.class.native && w.class.wndproc != 0).map(|w| w.class.wndproc)) {
+                Some(native) => {
+                    super::api::with_print_dc(hwnd, wp, || call_proc(native, hwnd, WM_PAINT, wp, 0));
+                }
+                None => {
+                    send_message(hwnd, WM_PAINT, wp, 0, ansi);
+                }
+            }
             0
         }
         WM_ERASEBKGND => with(|g| {

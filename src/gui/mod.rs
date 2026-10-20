@@ -19,6 +19,7 @@ pub mod ctl_basic;
 pub mod ctl_combo;
 pub mod ctl_list;
 pub mod ctl_listview;
+pub mod ctl_rebar;
 pub mod ctl_tab;
 pub mod ctl_toolbar;
 pub mod ctl_treeview;
@@ -256,6 +257,7 @@ impl Gui {
         ctl_listview::register_class(&mut g);
         ctl_treeview::register_class(&mut g);
         ctl_toolbar::register_class(&mut g);
+        ctl_rebar::register_class(&mut g);
         g
     }
 

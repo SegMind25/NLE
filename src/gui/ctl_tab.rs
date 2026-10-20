@@ -13,6 +13,7 @@ use super::*;
 const TCS_BOTTOM: u32 = 2;
 const TCS_BUTTONS: u32 = 0x100;
 const TCS_FIXEDWIDTH: u32 = 0x400;
+const TCS_OWNERDRAWFIXED: u32 = 0x2000;
 const TCN_SELCHANGE: i32 = -551;
 const TCN_SELCHANGING: i32 = -552;
 const TCIF_TEXT: u32 = 1;
@@ -95,8 +96,8 @@ unsafe fn paint_tab(h: usize) {
     if hdc == 0 {
         return;
     }
-    let parent = with(|g| g.windows.get(&h).map_or(0, |w| w.parent));
-    let _ = parent;
+    // owner-drawn tabs are painted by the parent: (index, rectangle, data, selected, focused)
+    let mut owner: Vec<(usize, Rect, isize, bool, bool)> = Vec::new();
     with(|g| {
         let Some(w) = g.windows.get(&h) else { return };
         let (cw, ch) = w.client_size();
@@ -108,6 +109,13 @@ unsafe fn paint_tab(h: usize) {
         let buttons = style & TCS_BUTTONS != 0;
         let focused = g.focus == h;
         let enabled = g.is_enabled(h);
+        let owner_draw = style & TCS_OWNERDRAWFIXED != 0;
+        if crate::runtime::cfg().trace.api {
+            eprintln!("nle[gui]: paint tab {h:#x} style={style:#x} items={} cur={} rects={:?}", t.items.len(), t.cur, rects);
+        }
+        if owner_draw {
+            owner = rects.iter().enumerate().map(|(i, r)| (i, *r, t.items[i].param, t.cur == i as i32, focused && t.focus == i as i32)).collect();
+        }
         let f = font_of(g, h);
         g.select_object(hdc, f);
         g.fill_rect(hdc, Rect::new(0, 0, cw, ch), &Brush::Solid(super::gdi::sys_color(15)));
@@ -120,6 +128,9 @@ unsafe fn paint_tab(h: usize) {
                 cv.frame_rect(body, 0xD9D9D9, 1);
             }
             for (i, r) in rects.iter().enumerate() {
+                if owner_draw {
+                    break;
+                }
                 let sel = t.cur == i as i32;
                 if buttons {
                     cv.fill_rect(*r, if sel { 0xCCE4F7 } else { 0xE1E1E1 });
@@ -149,6 +160,7 @@ unsafe fn paint_tab(h: usize) {
             }
         });
         // images after the text loop so they are not covered
+        let list = if owner_draw { None } else { list };
         if let Some(l) = &list {
             let imgs: Vec<(usize, i32, i32)> = rects.iter().enumerate().filter(|(i, _)| t.items[*i].image >= 0).map(|(i, r)| (t.items[i].image as usize, r.l + t.pad.0.max(6), r.t + (r.height() - l.h) / 2)).collect();
             for (idx, x, y) in imgs {
@@ -156,6 +168,26 @@ unsafe fn paint_tab(h: usize) {
             }
         }
     });
+    if !owner.is_empty() {
+        let (parent, id) = with(|g| g.windows.get(&h).map_or((0, 0), |w| (w.parent, w.id)));
+        for (i, r, data, sel, focus) in owner {
+            // DRAWITEMSTRUCT: type ODT_TAB, control id, item, action ODA_DRAWENTIRE, state, window, dc, rectangle, data
+            let mut di = [0u8; 64];
+            di[0..4].copy_from_slice(&101u32.to_le_bytes());
+            di[4..8].copy_from_slice(&(id as u32).to_le_bytes());
+            di[8..12].copy_from_slice(&(i as u32).to_le_bytes());
+            di[12..16].copy_from_slice(&1u32.to_le_bytes());
+            let state = u32::from(sel) | if focus { 0x10 } else { 0 };
+            di[16..20].copy_from_slice(&state.to_le_bytes());
+            di[24..32].copy_from_slice(&(h as u64).to_le_bytes());
+            di[32..40].copy_from_slice(&(hdc as u64).to_le_bytes());
+            for (k, v) in [r.l, r.t, r.r, r.b].iter().enumerate() {
+                di[40 + k * 4..44 + k * 4].copy_from_slice(&v.to_le_bytes());
+            }
+            di[56..64].copy_from_slice(&(data as u64).to_le_bytes());
+            api::send(parent, WM_DRAWITEM, id, di.as_ptr() as isize);
+        }
+    }
     api::end_paint(h, ps.as_ptr());
 }
 
@@ -207,6 +239,9 @@ unsafe fn read_item(p: *const u8, wide: bool, base: Tab) -> Tab {
 }
 
 pub unsafe extern "win64" fn tab_proc(h: usize, msg: u32, wp: usize, lp: isize) -> isize {
+    if crate::runtime::cfg().trace.api && msg != 0x84 && msg != 0x20 && msg != 0x200 {
+        eprintln!("nle[gui]: tab {h:#x} msg={msg:#x} wp={wp:#x} lp={lp:#x}");
+    }
     match msg {
         WM_NCCREATE => {
             with(|g| {
