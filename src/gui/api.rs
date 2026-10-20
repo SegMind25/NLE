@@ -365,6 +365,38 @@ pub unsafe fn set_window_pos(h: usize, x: i32, y: i32, cx: i32, cy: i32, flags: 
     true
 }
 
+/// `SetWindowPos`' z-order argument: `after` is HWND_TOP (0), HWND_BOTTOM (1), HWND_TOPMOST (-1), HWND_NOTOPMOST (-2) or the
+/// sibling the window goes below. Among siblings the first in the list is the topmost.
+pub fn set_window_z(h: usize, after: usize) {
+    with(|g| {
+        let Some(parent) = g.windows.get(&h).map(|w| w.parent) else { return };
+        match after {
+            0 | usize::MAX | 0xffff_ffff_ffff_fffe => g.bring_to_top(h),
+            1 => {
+                if parent != 0 {
+                    if let Some(p) = g.windows.get_mut(&parent) {
+                        p.children.retain(|c| *c != h);
+                        p.children.push(h);
+                    }
+                    g.invalidate(h, None, true);
+                }
+            }
+            sibling => {
+                if parent != 0 {
+                    if let Some(p) = g.windows.get_mut(&parent) {
+                        if p.children.contains(&sibling) && sibling != h {
+                            p.children.retain(|c| *c != h);
+                            let at = p.children.iter().position(|c| *c == sibling).map_or(p.children.len(), |i| i + 1);
+                            p.children.insert(at, h);
+                        }
+                    }
+                    g.invalidate(h, None, true);
+                }
+            }
+        }
+    });
+}
+
 pub unsafe fn set_window_text(h: usize, text: &str) {
     with(|g| {
         g.set_title(h, text);

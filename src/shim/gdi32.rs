@@ -616,7 +616,8 @@ crate::shims! { "gdi32" => GDI32_SHIMS;
     }
     fn BitBlt(dst: usize, dx: i32, dy: i32, w: i32, h: i32, src: usize, sx: i32, sy: i32, rop: u32) -> BOOL {
         if crate::runtime::cfg().trace.gdi {
-            eprintln!("nle[gdi]: BitBlt dst={dst:#x} ({dx},{dy} {w}x{h}) src={src:#x} ({sx},{sy}) rop={rop:#x}");
+            let px = with(|g| g.read_source(src, sx + 2, sy + 2, 1, 1).map(|s| s.get(0, 0)));
+            eprintln!("nle[gdi]: BitBlt dst={dst:#x} ({dx},{dy} {w}x{h}) src={src:#x} ({sx},{sy}) rop={rop:#x} src pixel={px:x?}");
         }
         with(|g| g.bit_blt(dst, dx, dy, w, h, src, sx, sy, rop)) as BOOL
     }
@@ -704,6 +705,11 @@ crate::shims! { "gdi32" => GDI32_SHIMS;
         ext_text_out(hdc, x, y, options, rect, &text_of(text, n as i32, false))
     }
     fn ExtTextOutW(hdc: usize, x: i32, y: i32, options: u32, rect: *const i32, text: usize, n: u32, _dx: *const i32) -> BOOL {
+        if crate::runtime::cfg().trace.gdi {
+            let t = text_of(text, n as i32, true);
+            let r = if rect.is_null() { String::new() } else { format!("{:?}", rect_from(rect)) };
+            eprintln!("nle[gdi]: ExtTextOutW dc={hdc:#x} ({x},{y}) opt={options:#x} rect={r} text={t:?}");
+        }
         ext_text_out(hdc, x, y, options, rect, &text_of(text, n as i32, true))
     }
     fn GetTextExtentPoint32A(hdc: usize, text: usize, n: i32, size: *mut i32) -> BOOL {

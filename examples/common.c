@@ -281,6 +281,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
     SendMessageA(spin, UDM_SETRANGE32, 0, 50);
 
     show_page(0);
+    /* controls created later sit below the ones created earlier: the pages go above the tab control */
+    SetWindowPos(tab, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     layout(h);
     /* the spin control attaches to its edit box where the box is now */
     SendMessageA(spin, UDM_SETBUDDY, (WPARAM)spin_edit, 0);

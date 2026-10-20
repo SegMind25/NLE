@@ -54,7 +54,8 @@ impl Drop for Bitmap {
 #[derive(Clone, Debug)]
 pub enum Target {
     /// The client area of a window, drawn into its top-level window's surface.
-    Window { top: usize, ox: i32, oy: i32, clip: Rect },
+    /// `exclude` holds the parts of the client area that belong to other windows (children, siblings above): clipped away.
+    Window { top: usize, ox: i32, oy: i32, clip: Rect, exclude: Vec<Rect> },
     /// Memory DC: draws into the selected bitmap.
     Memory,
     /// The desktop: drawing is accepted and discarded.
@@ -296,19 +297,24 @@ impl Gui {
             Some(Object::Font(f)) => f.clone(),
             _ => LogFont { height: -12, width: 0, weight: 400, italic: false, underline: false, strike: false, pitch_family: 0x22, face: "Segoe UI".into() },
         };
-        let (base_ox, base_oy, base_clip) = match &d.target {
-            Target::Window { ox, oy, clip, .. } => (*ox, *oy, *clip),
+        let (base_ox, base_oy, base_clip, excluded) = match &d.target {
+            Target::Window { ox, oy, clip, exclude, .. } => (*ox, *oy, *clip, exclude.clone()),
             Target::Memory => match self.objects.get(&d.bitmap) {
-                Some(Object::Bitmap(b)) => (0, 0, b.surf.bounds()),
-                _ => (0, 0, Rect::default()),
+                Some(Object::Bitmap(b)) => (0, 0, b.surf.bounds(), Vec::new()),
+                _ => (0, 0, Rect::default(), Vec::new()),
             },
-            Target::Screen => (0, 0, Rect::default()),
+            Target::Screen => (0, 0, Rect::default(), Vec::new()),
         };
         let ox = base_ox - d.win_org.0 + d.vp_org.0;
         let oy = base_oy - d.win_org.1 + d.vp_org.1;
-        let clips = match &d.clip {
-            None => vec![base_clip],
-            Some(list) => list.iter().map(|r| r.offset(base_ox, base_oy).intersect(&base_clip)).filter(|r| !r.is_empty()).collect(),
+        // what the window may draw on: its clip without the areas other windows own
+        let mut visible = vec![base_clip];
+        for e in &excluded {
+            visible = visible.into_iter().flat_map(|r| rect_subtract(r, *e)).filter(|r| !r.is_empty()).collect();
+        }
+        let clips: Vec<Rect> = match &d.clip {
+            None => visible,
+            Some(list) => list.iter().map(|r| r.offset(base_ox, base_oy)).flat_map(|r| visible.iter().map(move |v| v.intersect(&r))).filter(|r| !r.is_empty()).collect(),
         };
         Some(View {
             target: d.target.clone(),

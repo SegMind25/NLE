@@ -371,7 +371,7 @@ impl Gui {
     pub fn hit_test(&self, top: usize, x: i32, y: i32) -> (usize, i32, i32) {
         fn walk(g: &Gui, h: usize, x: i32, y: i32) -> (usize, i32, i32) {
             let Some(w) = g.windows.get(&h) else { return (h, x, y) };
-            for &c in w.children.iter().rev() {
+            for &c in w.children.iter() {
                 let Some(cw) = g.windows.get(&c) else { continue };
                 if !cw.visible_flag() {
                     continue;
@@ -605,9 +605,54 @@ impl Gui {
         }
     }
 
+    /// The window's outer rectangle in the coordinates of its top-level window's surface.
+    pub fn outer_rect_in_top(&self, h: usize) -> Rect {
+        let Some(w) = self.windows.get(&h) else { return Rect::default() };
+        if w.parent == 0 {
+            let c = self.client_rect_in_top(h);
+            let i = w.inset();
+            return Rect::new(c.l - i.l, c.t - i.t, c.l - i.l + w.rect.width(), c.t - i.t + w.rect.height());
+        }
+        let (px, py) = self.client_origin_in_top(w.parent);
+        w.rect.offset(px, py)
+    }
+
+    /// Parts of a window's client area that other windows own, in its top-level window's coordinates: the visible children
+    /// when it clips them (`WS_CLIPCHILDREN`), and the visible siblings above it - and above its ancestors - when it,
+    /// or the ancestor, clips siblings (`WS_CLIPSIBLINGS`). Children are in front of their parent; among siblings the
+    /// first one created is the topmost.
+    pub fn covered_by_others(&self, h: usize) -> Vec<Rect> {
+        let mut out = Vec::new();
+        let Some(w) = self.windows.get(&h) else { return out };
+        if w.style & WS_CLIPCHILDREN != 0 {
+            for c in &w.children {
+                if self.windows.get(c).is_some_and(|k| k.visible_flag() && !k.minimized) {
+                    out.push(self.outer_rect_in_top(*c));
+                }
+            }
+        }
+        let mut cur = h;
+        while let Some(cw) = self.windows.get(&cur) {
+            if cw.parent == 0 {
+                break;
+            }
+            if cw.style & WS_CLIPSIBLINGS != 0 {
+                if let Some(p) = self.windows.get(&cw.parent) {
+                    for s in p.children.iter().take_while(|s| **s != cur) {
+                        if self.windows.get(s).is_some_and(|k| k.visible_flag()) {
+                            out.push(self.outer_rect_in_top(*s));
+                        }
+                    }
+                }
+            }
+            cur = cw.parent;
+        }
+        out
+    }
+
     /// A DC for a window's client area. `clip_to` limits drawing (the update rectangle for `BeginPaint`).
     pub fn window_dc(&mut self, h: usize, paint: bool, clip_to: Option<Rect>) -> Option<usize> {
-        let w = self.windows.get(&h)?;
+        self.windows.get(&h)?;
         let top = self.top_level_of(h);
         self.windows.get(&top)?.surface.as_ref()?;
         let (ox, oy) = self.client_origin_in_top(h);
@@ -615,12 +660,8 @@ impl Gui {
         if let Some(r) = clip_to {
             clip = clip.intersect(&r.offset(ox, oy));
         }
-        if w.style & WS_CLIPCHILDREN != 0 && paint {
-            // children paint themselves; the parent's DC leaves them alone
-            let kids: Vec<Rect> = w.children.iter().filter(|c| self.windows.get(c).is_some_and(|k| k.visible_flag())).map(|c| self.client_rect_in_top(*c)).collect();
-            let _ = kids; // exclusion is approximated by painting children after their parent
-        }
-        Some(self.new_dc(Target::Window { top, ox, oy, clip }, h, paint))
+        let exclude = self.covered_by_others(h);
+        Some(self.new_dc(Target::Window { top, ox, oy, clip, exclude }, h, paint))
     }
 
     /// Pushes everything drawn since the last flush to the display.
@@ -702,9 +743,22 @@ impl Gui {
         }
         if let Some(p) = self.windows.get_mut(&parent) {
             p.children.retain(|c| *c != h);
-            p.children.push(h);
+            p.children.insert(0, h);
         }
         self.invalidate(h, None, true);
+    }
+
+    /// The window and everything below it, parents before children and the lowest sibling first (it is painted over).
+    pub fn paint_order(&self, top: usize) -> Vec<usize> {
+        let mut out = vec![top];
+        let mut i = 0;
+        while i < out.len() {
+            if let Some(w) = self.windows.get(&out[i]) {
+                out.extend(w.children.iter().rev().copied());
+            }
+            i += 1;
+        }
+        out
     }
 
     /// Next window of `thread` that has something to paint (parents before children).
@@ -712,7 +766,7 @@ impl Gui {
         let mut tops: Vec<usize> = self.windows.values().filter(|w| w.parent == 0 && w.thread == thread).map(|w| w.hwnd).collect();
         tops.sort();
         for t in tops {
-            for h in self.subtree(t) {
+            for h in self.paint_order(t) {
                 if let Some(w) = self.windows.get(&h) {
                     if !w.update.is_empty() && self.is_visible(h) {
                         return Some(h);
@@ -850,11 +904,46 @@ mod tests {
         let b = make(&mut g, "c", WS_CHILD | WS_VISIBLE, 50, 50, 100, 100, top);
         g.window_mut(a).unwrap().style |= WS_VISIBLE;
         g.window_mut(b).unwrap().style |= WS_VISIBLE;
-        assert_eq!(g.hit_test(top, 60, 60).0, b, "b is later in the z-order");
+        // a new child goes below its siblings: the first one created is the topmost
+        assert_eq!(g.hit_test(top, 60, 60).0, a, "a was created first, so it is above b");
         assert_eq!(g.hit_test(top, 20, 20).0, a);
         assert_eq!(g.hit_test(top, 190, 5).0, top);
+        g.bring_to_top(b);
+        assert_eq!(g.hit_test(top, 60, 60).0, b);
         let (_, lx, ly) = g.hit_test(top, 60, 70);
         assert_eq!((lx, ly), (10, 20));
+    }
+
+    #[test]
+    fn clipping_leaves_the_areas_of_other_windows_alone() {
+        let mut g = gui();
+        class(&mut g, "C");
+        let top = make(&mut g, "c", WS_POPUP, 0, 0, 200, 200, 0);
+        // `lower` is created after `upper`, so it is below it
+        let upper = make(&mut g, "c", WS_CHILD | WS_VISIBLE, 0, 0, 100, 100, top);
+        let lower = make(&mut g, "c", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 50, 50, 100, 100, top);
+        for h in [upper, lower] {
+            g.window_mut(h).unwrap().style |= WS_VISIBLE;
+        }
+        assert_eq!(g.covered_by_others(lower), vec![Rect::new(0, 0, 100, 100)]);
+        assert!(g.covered_by_others(upper).is_empty(), "no WS_CLIPSIBLINGS: it draws over what is below");
+        g.window_mut(top).unwrap().style |= WS_CLIPCHILDREN;
+        let kids = g.covered_by_others(top);
+        assert_eq!(kids.len(), 2);
+        assert!(kids.contains(&Rect::new(50, 50, 150, 150)));
+        // hidden windows cover nothing
+        g.window_mut(upper).unwrap().style &= !WS_VISIBLE;
+        assert!(g.covered_by_others(lower).is_empty());
+    }
+
+    #[test]
+    fn painting_goes_from_the_lowest_sibling_up() {
+        let mut g = gui();
+        class(&mut g, "C");
+        let top = make(&mut g, "c", WS_POPUP, 0, 0, 200, 200, 0);
+        let first = make(&mut g, "c", WS_CHILD, 0, 0, 10, 10, top);
+        let second = make(&mut g, "c", WS_CHILD, 0, 0, 10, 10, top);
+        assert_eq!(g.paint_order(top), vec![top, second, first]);
     }
 
     #[test]

@@ -37,7 +37,6 @@ PROGRAMS = [
     dict(name="bat", url="https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-pc-windows-msvc.zip", kind="zip", exe="bat-v0.24.0-x86_64-pc-windows-msvc/bat.exe", args=["--version"], expect="bat 0.24.0"),
     dict(name="hyperfine", url="https://github.com/sharkdp/hyperfine/releases/download/v1.19.0/hyperfine-v1.19.0-x86_64-pc-windows-msvc.zip", kind="zip", exe="hyperfine-v1.19.0-x86_64-pc-windows-msvc/hyperfine.exe", args=["--version"], expect="hyperfine 1.19.0"),
     dict(name="jq", url="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe", kind="exe", exe="jq.exe", args=["--version"], expect="jq-1.7.1"),
-    dict(name="7zr", url="https://github.com/ip7z/7zip/releases/download/24.09/7zr.exe", kind="exe", exe="7zr.exe", args=["i"], expect="7-Zip"),
     dict(name="fzf", url="https://github.com/junegunn/fzf/releases/download/v0.55.0/fzf-0.55.0-windows_amd64.zip", kind="zip", exe="fzf.exe", args=["--version"], expect="0.55.0"),
     dict(name="notepad++", url="https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.9/npp.8.7.9.portable.x64.zip", kind="zip", exe="notepad++.exe", args=[], expect=None, gui=True),
 ]

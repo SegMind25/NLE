@@ -890,18 +890,18 @@ crate::shims! { "user32" => USER32_SHIMS;
             };
             let pos = siblings.iter().position(|s| *s == h).unwrap_or(0);
             match cmd {
-                0 => siblings.last().copied().unwrap_or(0),
-                1 => siblings.first().copied().unwrap_or(0),
+                0 => siblings.first().copied().unwrap_or(0),
+                1 => siblings.last().copied().unwrap_or(0),
                 2 => pos.checked_sub(1).and_then(|i| siblings.get(i)).copied().unwrap_or(0),
                 3 => siblings.get(pos + 1).copied().unwrap_or(0),
                 4 => w.owner,
-                5 => w.children.last().copied().unwrap_or(0),
+                5 => w.children.first().copied().unwrap_or(0),
                 _ => 0,
             }
         })
     }
     fn GetTopWindow(h: usize) -> usize {
-        with(|g| if h == 0 { g.main_window() } else { g.windows.get(&h).and_then(|w| w.children.last().copied()).unwrap_or(0) })
+        with(|g| if h == 0 { g.main_window() } else { g.windows.get(&h).and_then(|w| w.children.first().copied()).unwrap_or(0) })
     }
     fn GetDesktopWindow() -> usize {
         with(|g| g.desktop)
@@ -1045,8 +1045,12 @@ crate::shims! { "user32" => USER32_SHIMS;
     fn MoveWindow(h: usize, x: i32, y: i32, w: i32, hh: i32, _repaint: BOOL) -> BOOL {
         api::set_window_pos(h, x, y, w, hh, 4) as BOOL
     }
-    fn SetWindowPos(h: usize, _after: usize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> BOOL {
-        api::set_window_pos(h, x, y, cx, cy, flags) as BOOL
+    fn SetWindowPos(h: usize, after: usize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> BOOL {
+        let ok = api::set_window_pos(h, x, y, cx, cy, flags | 4) as BOOL;
+        if flags & 4 == 0 {
+            api::set_window_z(h, after);
+        }
+        ok
     }
     fn BringWindowToTop(h: usize) -> BOOL {
         with(|g| g.bring_to_top(h));
@@ -1704,6 +1708,9 @@ crate::shims! { "user32" => USER32_SHIMS;
         TRUE
     }
     fn FillRect(hdc: usize, r: *const i32, brush: usize) -> i32 {
+        if crate::runtime::cfg().trace.gdi {
+            eprintln!("nle[gdi]: FillRect dc={hdc:#x} {:?} brush={brush:#x}", rect_from(r));
+        }
         let rect = rect_from(r);
         with(|g| {
             let b = g.brush_arg(brush);
